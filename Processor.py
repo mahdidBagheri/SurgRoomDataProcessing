@@ -329,8 +329,8 @@ hl = pd.read_csv(f"hl_data{n}.csv")
 df = pd.DataFrame(columns=["shift", "coef", "mean"])
 # SHIFT = range(138,150,1)
 if n == 3:
-    SHIFT = [147] # for n = 3
-    COEF = [1.505] # for n = 3
+    SHIFT = [149] # for n = 3
+    COEF = [1.506533] # for n = 3
     INTERSECTION_THRESH = 30
 
 elif n == 4:

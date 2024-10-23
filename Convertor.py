@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import scipy
 from scipy.spatial.transform import Rotation as R
-n = 3
+n = 5
 
 def extract_quaternion_and_translation(matrix):
     # Ensure the matrix is 4x4
@@ -24,12 +24,12 @@ def read_external_data():
     value_to_check = 'OK'
 
     def check_value(df, column, value):
-        new_df = pd.DataFrame(columns=["index", "State", "Q0", "Qx", "Qy", "Qz", "Tx", "Ty", "Tz"])
+        new_df = pd.DataFrame(columns=["index", "timestamp", "State", "Q0", "Qx", "Qy", "Qz", "Tx", "Ty", "Tz"])
         for i, row in df.iterrows():
             if row[column] == value:
-                new_dict = {"index":i,"State":row["State"],"Q0":row["Q0"], "Qx":row["Qx"], "Qy":row["Qy"], "Qz":row["Qz"],"Tx":row["Tx"],"Ty":row["Ty"],"Tz":row["Tz"]}
+                new_dict = {"index":i, "timestamp":row["Frame"],"State":row["State"],"Q0":row["Q0"], "Qx":row["Qx"], "Qy":row["Qy"], "Qz":row["Qz"],"Tx":row["Tx"],"Ty":row["Ty"],"Tz":row["Tz"]}
             else:
-                new_dict = {"index":i,"State":row["State"],"Q0":None, "Qx":None, "Qy":None, "Qz":None,"Tx":None,"Ty":None,"Tz":None}
+                new_dict = {"index":i, "timestamp":row["Frame"],"State":row["State"],"Q0":None, "Qx":None, "Qy":None, "Qz":None,"Tx":None,"Ty":None,"Tz":None}
             _df = pd.DataFrame([new_dict])
             new_df = pd.concat([new_df, _df], ignore_index=True)
         return new_df
@@ -39,7 +39,7 @@ def read_external_data():
     return result
 
 def read_hololense_data():
-    df = pd.DataFrame(columns=["index", "State","Q0","Qx","Qy","Qz","Tx","Ty","Tz"])
+    df = pd.DataFrame(columns=["index", "timestamp", "State","Q0","Qx","Qy","Qz","Tx","Ty","Tz"])
 
     with open(f"{n}.txt", "r") as hl_data:
         lines = hl_data.readlines()
@@ -51,7 +51,7 @@ def read_hololense_data():
                 data.append(float(d))
             data_np = np.array(data).reshape((4,4))
             q, t = extract_quaternion_and_translation(data_np)
-            new_dict = {"index":i,"State":"OK","Q0":q[0], "Qx":q[1], "Qy":q[2], "Qz":q[3], "Tx":t[0]*1000, "Ty":t[1]*1000, "Tz":t[2]*1000}
+            new_dict = {"index":i, "timestamp":content[0],"State":"OK","Q0":q[0], "Qx":q[1], "Qy":q[2], "Qz":q[3], "Tx":t[0]*1000, "Ty":t[1]*1000, "Tz":t[2]*1000}
             new_df = pd.DataFrame([new_dict])
             df = pd.concat([df, new_df], ignore_index=True)
     return df

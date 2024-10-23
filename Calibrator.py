@@ -325,9 +325,9 @@ samples = [
     {'ref': Q4, 'target': R4}
 ]
 
-rot , rot_err= calibrate_rotation(samples, vis=True)
-rotated_samples = rotate_samples(samples, rot)
-trans, trans_err, tras_std = calibrate_translation(rotated_samples)
+# rot , rot_err= calibrate_rotation(samples, vis=True)
+# rotated_samples = rotate_samples(samples, rot)
+# trans, trans_err, tras_std = calibrate_translation(rotated_samples)
 
 """
 F
