@@ -18,8 +18,10 @@ class DSample:
     def __init__(self):
         self.ref = None
         self.index_1 = None
+        self.t_1 = None
         self.target = None
         self.index_2 = None
+        self.t_2 = None
         self.valid = False
 
 def delta_rotation_samples(s1, s2, i, j):
@@ -38,6 +40,9 @@ def delta_rotation_samples(s1, s2, i, j):
     ds.index_1 = i
     ds.target = ds.target / np.linalg.norm(ds.target)
     ds.index_2 = j
+
+    ds.t_1 = s1["target_t"]
+    ds.t_2 = s2["target_t"]
     return ds
 
 
@@ -73,11 +78,11 @@ def visalize_rots(ref, target, rot):
     plt.show()
 
 
-def calibrate_rotation(samples, vis):
+def calibrate_rotation(samples,sampling_ration, vis):
     deltas = []
 
-    for i in range(len(samples)):
-        for j in range(i):
+    for i in range(0, len(samples), sampling_ration):
+        for j in range(0,i,sampling_ration):
             delta = delta_rotation_samples(samples[i], samples[j], i, j)
             if delta.valid:
                 deltas.append(delta)
@@ -88,7 +93,7 @@ def calibrate_rotation(samples, vis):
     target_points = np.array([delta.target for delta in deltas])
 
     # R_matrix, t_vector, inliers = ransac_rigid_transform(ref_points, target_points, residual_threshold=0.2, stop_probability=0.99, stop_n_inliers=100000)
-    R_matrix, t_vector, inliers = ransac_rigid_transform(ref_points, target_points,residual_threshold=10.0, stop_probability=0.999999)
+    R_matrix, t_vector, inliers = ransac_rigid_transform(ref_points, target_points,residual_threshold=3.0, stop_probability=0.999999)
     ref_points = ref_points[inliers]
     target_points = target_points[inliers]
 
