@@ -78,7 +78,7 @@ def visalize_rots(ref, target, rot):
     plt.show()
 
 
-def calibrate_rotation(samples,sampling_ration, vis):
+def calibrate_rotation(samples,sampling_ration,apply_ransac, vis):
     deltas = []
 
     for i in range(0, len(samples), sampling_ration):
@@ -94,8 +94,9 @@ def calibrate_rotation(samples,sampling_ration, vis):
 
     # R_matrix, t_vector, inliers = ransac_rigid_transform(ref_points, target_points, residual_threshold=0.2, stop_probability=0.99, stop_n_inliers=100000)
     R_matrix, t_vector, inliers = ransac_rigid_transform(ref_points, target_points,residual_threshold=3.0, stop_probability=0.999999)
-    ref_points = ref_points[inliers]
-    target_points = target_points[inliers]
+    if apply_ransac:
+        ref_points = ref_points[inliers]
+        target_points = target_points[inliers]
 
     ref_centroid = np.mean(ref_points, axis=0)
     target_centroid = np.mean(target_points, axis=0)

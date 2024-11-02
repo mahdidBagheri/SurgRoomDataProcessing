@@ -3,7 +3,7 @@ import pandas as pd
 import matplotlib
 
 from Calibrator import calibrate_rotation
-from Utils import quaternion_rotation_angle_between, quaternion_to_matrix
+from Utils import quaternion_rotation_angle_between, quaternion_to_matrix, angle_from_rotation_matrix
 
 matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
@@ -100,7 +100,7 @@ def calc_hl_fps(hl):
 
     a = 0
 
-def plot_speeds(hl, ex, dt, scores):
+def plot_speeds(hl, ex, dt, scores, diff_angles):
     hl_v = pd.DataFrame(columns=["t", "v", "dt"])
 
     for i in range(1,hl.shape[0]-1):
@@ -108,8 +108,13 @@ def plot_speeds(hl, ex, dt, scores):
                     (hl.loc[i,"Ty"] - hl.loc[i-1,"Ty"])**2 + \
                     (hl.loc[i,"Tz"] - hl.loc[i-1,"Tz"])**2)
 
+        h1 = quaternion_to_matrix([hl.loc[i, "Q0"],hl.loc[i, "Qx"],hl.loc[i, "Qy"],hl.loc[i, "Qz"]])
+        h2 = quaternion_to_matrix([hl.loc[i-1, "Q0"],hl.loc[i-1, "Qx"],hl.loc[i-1, "Qy"],hl.loc[i-1, "Qz"]])
+        dh = h1 @ h2.T
+        ah = angle_from_rotation_matrix(dh)
+
         dt_hl = hl.loc[i,"timestamp"] - hl.loc[i-1,"timestamp"]
-        v = dT_hl/dt_hl
+        v = ah/dt_hl
         new_hlv = pd.DataFrame.from_records({"t":[hl.loc[i,"timestamp"]- dt], "v":[v], "dt":dt_hl})
         hl_v = pd.concat([hl_v, new_hlv], ignore_index=True)
 
@@ -119,20 +124,29 @@ def plot_speeds(hl, ex, dt, scores):
         dT_ex = np.sqrt((ex.loc[i, "Tx"] - ex.loc[i - 1, "Tx"]) ** 2 + \
              (ex.loc[i, "Ty"] - ex.loc[i - 1, "Ty"]) ** 2 + \
              (ex.loc[i, "Tz"] - ex.loc[i - 1, "Tz"]) ** 2)
+
+        e1 = quaternion_to_matrix([ex.loc[i, "Q0"], ex.loc[i, "Qx"], ex.loc[i, "Qy"], ex.loc[i, "Qz"]])
+        e2 = quaternion_to_matrix([ex.loc[i - 1, "Q0"], ex.loc[i - 1, "Qx"], ex.loc[i - 1, "Qy"], ex.loc[i - 1, "Qz"]])
+        de = e1 @ e2.T
+        ae = angle_from_rotation_matrix(de)
+
+
+
         dt_ex = ex.loc[i, "timestamp"] - ex.loc[i - 1, "timestamp"]
-        v = dT_ex / dt_ex
+        v = ae / dt_ex
         new_exv = pd.DataFrame.from_records({"t": [ex.loc[i, "timestamp"]], "v": [v], "dt":dt_ex})
         ex_v = pd.concat([ex_v, new_exv], ignore_index=True)
 
     plt.figure()
     fig, ax1 = plt.subplots(figsize=(16,8))
 
-    ax1.plot(hl_v["t"], hl_v["v"], label="hl")
-    ax1.plot(ex_v["t"], ex_v["v"], label="ex")
+    ax1.plot(hl_v["t"], hl_v["v"],color="blue", label="hl")
+    ax1.plot(ex_v["t"], ex_v["v"],color="red", label="ex")
 
     ax2 = ax1.twinx()
-    ax2.plot(hl_v["t"], scores[0:(len(hl_v["t"]))], color="yellow", label="outlier scores")
-
+    # ax2.plot(scores["timestamp"]-dt, scores["score"], color="yellow")
+    dif_a = diff_angles["ref_a"] - diff_angles["tar_a"]
+    ax2.plot(diff_angles["timestamp"]-dt, dif_a, color="yellow", label="diff")
     plt.legend()
     plt.show()
 
@@ -143,10 +157,29 @@ def create_transformation_matrix(quaternion, translation):
     transformation_matrix[:3, 3] = translation
     return transformation_matrix
 
+def calc_diff_angles(df):
+    angles_df = pd.DataFrame()
+    for i in range(df.shape[0]-2):
+        t = df.loc[i,"timestamp"]
+        ref_mat1 = df.loc[i,"ref"]
+        ref_mat2 = df.loc[i+1,"ref"]
+        ref_diff = ref_mat1@ref_mat2.T
+        ref_a = angle_from_rotation_matrix(ref_diff)
+
+        tar_mat1 = df.loc[i,"tar"]
+        tar_mat2 = df.loc[i+1,"tar"]
+        tar_diff = tar_mat1@tar_mat2.T
+        tar_a = angle_from_rotation_matrix(tar_diff)
+
+        new_angle_df = pd.DataFrame.from_records({"ref_a":[ref_a], "tar_a":[tar_a], "timestamp":[t]})
+        angles_df = pd.concat([angles_df,new_angle_df], ignore_index=True)
+    return angles_df
+
 def find_samples(hl, ex, dt):
     A = []
     B = []
     samples = []
+    df = pd.DataFrame()
     for i in range(hl.shape[0]-1):
 
         ex_t = int(hl.loc[i,"timestamp"] - dt)
@@ -164,23 +197,28 @@ def find_samples(hl, ex, dt):
 
         A.append(M_ex)
         B.append(M_hl)
+
         samples.append({'ref':M_ex, 'target':M_hl, "ref_i":ex_closest_index, "ref_t":ex_t+dt, "target_i":i, "target_t":hl.loc[i,'timestamp']})
+        new_df = pd.DataFrame.from_records({'ref':[M_ex], 'tar':[M_hl],"timestamp":[hl.loc[i,'timestamp']]})
+        df = pd.concat([df, new_df], ignore_index=True)
 
-    return samples
+    diff_angles = calc_diff_angles(df)
+    return samples, diff_angles
 
 
-def find_outliers(outliers, deltas, sampling_ration = 50):
-    scores = np.asarray([0.0 for i in range(len(hl))])
+def find_outliers(hl, outliers, deltas, sampling_ration = 50):
+    scores = pd.DataFrame({"timestamp": hl["timestamp"], 'score': [0 for i in range(len(hl["timestamp"]))]})
     for index in range(len(deltas)):
         if outliers[index] == True:
             hl_1 = deltas[index].index_1
             hl_2 = deltas[index].index_2
-            scores[int(hl_1):min(len(hl)-1,int(hl_1+sampling_ration))] += [1.0 for i in range(min(int(sampling_ration),len(hl)-1-int(hl_1+sampling_ration)))]
-            scores[int(hl_2):min(len(hl)-1,int(hl_2+sampling_ration))] += [1.0 for i in range(min(int(sampling_ration),len(hl)-1-int(hl_2+sampling_ration)))]
 
-    scores = np.asarray(scores)
-    plt.plot(scores)
-    plt.show()
+            scores.loc[hl_1, "score"] += 1.0
+            scores.loc[hl_2, "score"] += 1.0
+
+    # plt.plot(scores["timestamp"], scores["score"])
+    # plt.title("scores")
+    # plt.show()
     return scores
 
 def save_aligned_data(ex, hl ,dt):
@@ -195,10 +233,6 @@ def save_aligned_data(ex, hl ,dt):
         if i % 100 == 0:
             df.to_csv("combined_data.csv")
     df.to_csv("combined_data.csv")
-
-
-
-
 
 n = 5
 sampling_ration = 100
@@ -235,13 +269,30 @@ ex = pd.read_csv(f"ex_data{n}.csv")
 ex.loc[:,"timestamp"] *= ((1/fps)*1000)
 hl = pd.read_csv(f"hl_data{n}.csv")
 hl.loc[:,"timestamp"] *= (1/10000)
-dt = 13348541484098.867 + 1273 + 11450 - 4
-save_aligned_data(ex, hl ,dt)
+# dt = 13348541484098.867 + 1273 + 11450 - 4
+dt = 13348541496817.867
+# save_aligned_data(ex, hl ,dt)
 
-# samples = find_samples(hl, ex, dt)
-# rot, rot_err, inliers, deltas = calibrate_rotation(samples,sampling_ration=sampling_ration, vis=True)
-# outliers = np.logical_not(inliers)
-# scores = find_outliers(outliers, deltas, sampling_ration)
-# plot_speeds(hl, ex, dt, scores)
-# plot_speeds(scores)
+samples,diff_angles = find_samples(hl, ex, dt)
+rot, rot_err, inliers, deltas = calibrate_rotation(samples,apply_ransac=False, sampling_ration=sampling_ration, vis=True)
+outliers = np.logical_not(inliers)
+scores = find_outliers(hl, outliers, deltas, sampling_ration)
+plot_speeds(hl, ex, dt, scores, diff_angles)
+
+# optimization
+dt = 13348541496817.867
+ddt = 2000
+ra = np.linspace(dt - ddt, dt + ddt, 10)
+df = pd.DataFrame()
+
+# for i, t in enumerate(ra):
+#
+#     samples,diff_angles = find_samples(hl, ex, t)
+#     m = (diff_angles["ref_a"] - diff_angles["tar_a"]).mean()
+#     new_df = pd.DataFrame.from_records({"mean_diff":[m], "t":[t]})
+#     df = pd.concat([new_df, df], ignore_index=True)
+#
+#     df.to_csv("time-based_opt.csv")
+
+
 
