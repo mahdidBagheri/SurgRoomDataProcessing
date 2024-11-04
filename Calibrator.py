@@ -1,4 +1,6 @@
 import copy
+import random
+
 from RANSAC import ransac_rigid_transform, TranslationEstimator, CostumOutlierRemoval
 import numpy as np
 from scipy.spatial.transform import Rotation as R
@@ -13,6 +15,12 @@ matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 from Utils import _arrow3D
 from Utils import axis_from_rotation_matrix, angle_from_rotation_matrix
+import matplotlib.colors as mcolors
+
+def hsv_to_rgba(h, s, v):
+    rgb = mcolors.hsv_to_rgb([h, s, v])
+    rgba = list(rgb) + [1.0]  # Adding alpha value of 1.0
+    return rgba
 
 class DSample:
     def __init__(self):
@@ -35,10 +43,11 @@ def delta_rotation_samples(s1, s2, i, j):
     refA = angle_from_rotation_matrix(dref)
     targetA = angle_from_rotation_matrix(dtarget)
     ds.valid = refA > 0.4 and targetA > 0.4 and np.linalg.norm(ds.ref) > 0.01 and np.linalg.norm(ds.target) > 0.01
+    #ds.valid = True
 
-    ds.ref = ds.ref / np.linalg.norm(ds.ref)
+    ds.ref = ds.ref / np.linalg.norm(ds.ref) * refA
     ds.index_1 = i
-    ds.target = ds.target / np.linalg.norm(ds.target)
+    ds.target = ds.target / np.linalg.norm(ds.target) * targetA
     ds.index_2 = j
 
     ds.t_1 = s1["target_t"]
@@ -48,24 +57,30 @@ def delta_rotation_samples(s1, s2, i, j):
 
 def visalize_rots(ref, target, rot):
     assert ref.shape[0] == target.shape[0]
-
+    h = 0.0
+    s = 1.0  # You can change this value if you want a different saturation
+    v = 1.0
     L = ref.shape[0]
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
     angles = []
     for i in range(0, L, int(L/10)):
+        h = i/L
+        color = hsv_to_rgba(h, s, v)
         r = rot @ ref[i].reshape(3)
         t = target[i].reshape(3)
         ax.arrow3D(0, 0, 0,
                    r[0], r[1], r[2],
                    mutation_scale=20,
                    arrowstyle="-|>",
+                   ec=color,
+                   fc=color,
                    linestyle='dashed')
         ax.arrow3D(0, 0, 0,
                    t[0], t[1], t[2],
                    mutation_scale=20,
-                   ec='green',
-                   fc='red')
+                   ec=color,
+                   fc=color)
 
         angle = np.arccos(np.dot(r,t)/(np.linalg.norm(r)*np.linalg.norm(t)))
         angles.append(angle)
@@ -78,11 +93,82 @@ def visalize_rots(ref, target, rot):
     plt.show()
 
 
+from sklearn.linear_model import LinearRegression
+
+import numpy as np
+from sklearn.linear_model import LinearRegression
+
+
+def find_best_affine_transform(r, t):
+    # Convert lists to numpy arrays
+    r = np.array(r)
+    t = np.array(t)
+
+    # Add a column of ones to the source points for the affine transformation
+    r_augmented = np.hstack([r, np.ones((r.shape[0], 1))])
+
+    # Perform linear regression to find the affine transformation matrix
+    model = LinearRegression(fit_intercept=False)
+    model.fit(r_augmented, t)
+
+    # Extract the transformation matrix
+    affine_transform = model.coef_
+
+    # Separate the affine transformation matrix
+    transformation_matrix = affine_transform[:, :-1]
+
+    # Perform SVD to separate rotation and scale (which includes reflection)
+    U, S, Vt = np.linalg.svd(transformation_matrix)
+    rotation_matrix = np.dot(U, Vt)
+    scale_matrix = np.dot(np.dot(np.linalg.inv(U), transformation_matrix), np.linalg.inv(Vt))
+
+    # Calculate the transformed points
+    t_pred = model.predict(r_augmented)
+
+    return rotation_matrix, scale_matrix, t_pred
+
+
+def visualize_rot_path(ref, target, rot):
+    r = ref.T
+    t = target.T
+    trot, tscale, t_pred = find_best_affine_transform(r,t)
+    r_norm = np.linalg.norm(r, axis=0)
+    t_norm = np.linalg.norm(t, axis=0)
+    #cost = np.sum(np.multiply(r_norm,t_norm), axis=0)
+    plt.plot(r_norm, label="ref")
+    plt.plot(t_norm, label="tar")
+    plt.legend()
+    plt.show()
+
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+
+    h = 0.0
+    s = 1.0  # You can change this value if you want a different saturation
+    v = 1.0
+    # for i in range(ref.shape[0]):
+    #     h = i/ref.shape[0]
+    #     color = hsv_to_rgba(h, s, v)
+
+
+    # print (r)
+    # print(target)
+
+    ax.plot(t_pred[0,:], t_pred[1,:], t_pred[2,:], color="red")
+    ax.plot(t[0,:], t[1,:], t[2,:], color="blue", linestyle='dashed')
+
+    # fig.set_xlabel('x')
+    # fig.set_ylabel('y')
+    # fig.set_zlabel('z')
+    fig.tight_layout()
+    fig.show()
+
+
 def calibrate_rotation(samples,sampling_ration,apply_ransac, vis):
     deltas = []
 
-    for i in range(0, len(samples), sampling_ration):
-        for j in range(0,i,sampling_ration):
+    for i in range(0, len(samples)-100, sampling_ration):
+            j = i+100
             delta = delta_rotation_samples(samples[i], samples[j], i, j)
             if delta.valid:
                 deltas.append(delta)
@@ -90,21 +176,22 @@ def calibrate_rotation(samples,sampling_ration,apply_ransac, vis):
     print(f"Got {len(samples)} samples with {len(deltas)} delta samples")
 
     ref_points = np.array([delta.ref for delta in deltas])
-    target_points = np.array([delta.target for delta in deltas])
 
+    target_points = np.array([-delta.target for delta in deltas])
+    inliers = [True for i in range(ref_points.shape[0])]
     # R_matrix, t_vector, inliers = ransac_rigid_transform(ref_points, target_points, residual_threshold=0.2, stop_probability=0.99, stop_n_inliers=100000)
-    R_matrix, t_vector, inliers = ransac_rigid_transform(ref_points, target_points,residual_threshold=3.0, stop_probability=0.999999)
     if apply_ransac:
+        R_matrix, t_vector, inliers = ransac_rigid_transform(ref_points, target_points, residual_threshold=3.0,stop_probability=0.999999)
         ref_points = ref_points[inliers]
         target_points = target_points[inliers]
 
     ref_centroid = np.mean(ref_points, axis=0)
     target_centroid = np.mean(target_points, axis=0)
 
-    ref_points -= ref_centroid
-    target_points -= target_centroid
+    ref_points_c =ref_points - ref_centroid
+    target_points_c = target_points - target_centroid
 
-    cross_cv = ref_points.T.dot(target_points)
+    cross_cv = ref_points_c.T.dot(target_points_c)
 
     U, _, Vt = svd(cross_cv)
     V = Vt.T
@@ -123,6 +210,7 @@ def calibrate_rotation(samples,sampling_ration,apply_ransac, vis):
     print(f"rotation err = {np.mean(errors)}, rotation std = {np.std(errors):0.8f}")
 
     if vis:
+        visualize_rot_path(ref_points, target_points, rot)
         visalize_rots(ref_points, target_points, rot)
 
     euler = R.from_matrix(rot).as_euler('zyx', degrees=True)

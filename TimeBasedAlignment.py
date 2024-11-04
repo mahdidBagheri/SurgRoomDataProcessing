@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 import matplotlib
-
+from scipy.spatial.transform import Rotation as R
 from Calibrator import calibrate_rotation
 from Utils import quaternion_rotation_angle_between, quaternion_to_matrix, angle_from_rotation_matrix
 
@@ -137,7 +137,7 @@ def plot_speeds(hl, ex, dt, scores, diff_angles):
         new_exv = pd.DataFrame.from_records({"t": [ex.loc[i, "timestamp"]], "v": [v], "dt":dt_ex})
         ex_v = pd.concat([ex_v, new_exv], ignore_index=True)
 
-    plt.figure()
+    # plt.figure()
     fig, ax1 = plt.subplots(figsize=(16,8))
 
     ax1.plot(hl_v["t"], hl_v["v"],color="blue", label="hl")
@@ -147,8 +147,9 @@ def plot_speeds(hl, ex, dt, scores, diff_angles):
     # ax2.plot(scores["timestamp"]-dt, scores["score"], color="yellow")
     dif_a = diff_angles["ref_a"] - diff_angles["tar_a"]
     ax2.plot(diff_angles["timestamp"]-dt, dif_a, color="yellow", label="diff")
-    plt.legend()
-    plt.show()
+    # ax2.set_ylim([-0.1,+0.1])
+    fig.legend()
+    fig.show()
 
 def create_transformation_matrix(quaternion, translation):
     rotation_matrix = quaternion_to_matrix(quaternion)
@@ -180,7 +181,8 @@ def find_samples(hl, ex, dt):
     B = []
     samples = []
     df = pd.DataFrame()
-    for i in range(hl.shape[0]-1):
+    for i in range(int((hl.shape[0])*0.3),int((hl.shape[0])*0.7)):
+    # for i in range(500,600):
 
         ex_t = int(hl.loc[i,"timestamp"] - dt)
         ex_closest_index = find_nearest_ex_index(ex_t, ex["timestamp"])
@@ -194,9 +196,6 @@ def find_samples(hl, ex, dt):
         # find_std_in_angles(t_hl, t_ex)
         M_ex = create_transformation_matrix([t_ex["Q0"],t_ex["Qx"],t_ex["Qy"],t_ex["Qz"]], [t_ex['Tx'],t_ex['Ty'],t_ex['Tz']])
         M_hl = create_transformation_matrix([t_hl["Q0"],t_hl["Qx"],t_hl["Qy"],t_hl["Qz"]], [t_hl['Tx'],t_hl['Ty'],t_hl['Tz']])
-
-        A.append(M_ex)
-        B.append(M_hl)
 
         samples.append({'ref':M_ex, 'target':M_hl, "ref_i":ex_closest_index, "ref_t":ex_t+dt, "target_i":i, "target_t":hl.loc[i,'timestamp']})
         new_df = pd.DataFrame.from_records({'ref':[M_ex], 'tar':[M_hl],"timestamp":[hl.loc[i,'timestamp']]})
@@ -235,7 +234,7 @@ def save_aligned_data(ex, hl ,dt):
     df.to_csv("combined_data.csv")
 
 n = 5
-sampling_ration = 100
+sampling_ration = 1
 if n == 3:
     SHIFT = [149] # for n = 3
     COEF = [1.506533] # for n = 3
@@ -270,20 +269,39 @@ ex.loc[:,"timestamp"] *= ((1/fps)*1000)
 hl = pd.read_csv(f"hl_data{n}.csv")
 hl.loc[:,"timestamp"] *= (1/10000)
 # dt = 13348541484098.867 + 1273 + 11450 - 4
-dt = 13348541496817.867
+# dt = 13348541496817.867
+dt = 13348541496822.9
 # save_aligned_data(ex, hl ,dt)
+def convert_to_right_hand_quaternion(quat):
+    r = R.from_quat(quat)
+    rot_matrix = r.as_matrix()
+    rot_matrix[:, 2] = -rot_matrix[:, 2]  # Negate the z-axis
+    new_quat = R.from_matrix(rot_matrix).as_quat()
+    return new_quat
+# def plot_dirctions(hl, ex, dt):
+#     for i in range(int(hl.shape[0]*0.4), int(hl.shape[0]*0.6)):
+#         hl_mat = quaternion_to_matrix([hl.loc[i,"Q0"],hl.loc[i,"Qx"],hl.loc[i,"Qy"],hl.loc[i,"Qz"]])
+#         ex_t = hl.loc[i,"timestamp"] - dt
+#         ex_idx = find_nearest_ex_index(ex_t,ex["timestamp"])
+#         hl_mat = quaternion_to_matrix([hl.loc[i,"Q0"],hl.loc[i,"Qx"],hl.loc[i,"Qy"],hl.loc[i,"Qz"]])
+
+
+# Apply conversion to each quaternion in the DataFrame
+hl_copy = hl.copy()
+#df = hl.apply(lambda row: convert_to_right_hand_quaternion([row['Q0'], row['Qx'], row['Qy'], row['Qz']]), axis=1)
+#hl[['Q0', 'Qx', 'Qy', 'Qz']] = pd.DataFrame(df.tolist(), index=df.index)
 
 samples,diff_angles = find_samples(hl, ex, dt)
 rot, rot_err, inliers, deltas = calibrate_rotation(samples,apply_ransac=False, sampling_ration=sampling_ration, vis=True)
-outliers = np.logical_not(inliers)
-scores = find_outliers(hl, outliers, deltas, sampling_ration)
-plot_speeds(hl, ex, dt, scores, diff_angles)
+# outliers = np.logical_not(inliers)
+# scores = find_outliers(hl, outliers, deltas, sampling_ration)
+# plot_speeds(hl, ex, dt, scores, diff_angles)
 
 # optimization
-dt = 13348541496817.867
-ddt = 2000
-ra = np.linspace(dt - ddt, dt + ddt, 10)
-df = pd.DataFrame()
+
+# ddt = 200
+# ra = np.linspace(dt - ddt, dt + ddt, 40)
+# df = pd.DataFrame()
 
 # for i, t in enumerate(ra):
 #
