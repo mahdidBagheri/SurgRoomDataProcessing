@@ -45,6 +45,62 @@ def _arrow3D(ax, x, y, z, dx, dy, dz, *args, **kwargs):
 
 setattr(Axes3D, 'arrow3D', _arrow3D)
 
+def axis_angle_to_rotation_matrix(axis, angle):
+    """
+    Convert an axis-angle representation to a rotation matrix.
+
+    Parameters:
+    axis (array-like): The axis of rotation (a 3-element array or list).
+    angle (float): The angle of rotation in radians.
+
+    Returns:
+    np.ndarray: A 3x3 rotation matrix.
+    """
+    axis = np.asarray(axis)
+    axis = axis / np.linalg.norm(axis)
+    x, y, z = axis
+    cos_angle = np.cos(angle)
+    sin_angle = np.sin(angle)
+    one_minus_cos = 1 - cos_angle
+    rotation_matrix = np.array([
+        [cos_angle + x ** 2 * one_minus_cos, x * y * one_minus_cos - z * sin_angle,
+         x * z * one_minus_cos + y * sin_angle],
+        [y * x * one_minus_cos + z * sin_angle, cos_angle + y ** 2 * one_minus_cos,
+         y * z * one_minus_cos - x * sin_angle],
+        [z * x * one_minus_cos - y * sin_angle, z * y * one_minus_cos + x * sin_angle,
+         cos_angle + z ** 2 * one_minus_cos]
+    ])
+    return rotation_matrix
+
+
+def create_transformation_matrix_from_axisangle(axis, angle, translation):
+    """
+    Create a 4x4 transformation matrix from an axis-angle representation and translation.
+
+    Parameters:
+    axis (array-like): The axis of rotation (a 3-element array or list).
+    angle (float): The angle of rotation in radians.
+    translation (array-like): The translations along x, y, and z axes (a 3-element array or list).
+
+    Returns:
+    np.ndarray: A 4x4 transformation matrix.
+    """
+    # Convert axis-angle to rotation matrix
+    rotation_matrix = axis_angle_to_rotation_matrix(axis, angle)
+
+    # Initialize a 4x4 identity matrix
+    transformation_matrix = np.eye(4)
+
+    # Insert the rotation matrix into the top-left 3x3 part of the transformation matrix
+    transformation_matrix[:3, :3] = rotation_matrix
+
+    # Insert the translation values into the last column of the transformation matrix
+    transformation_matrix[0, 3] = translation[0]
+    transformation_matrix[1, 3] = translation[1]
+    transformation_matrix[2, 3] = translation[2]
+
+    return transformation_matrix
+
 def axis_from_rotation_matrix(matrix):
     rotation = R.from_matrix(matrix[:3,:3])
     axis_angle = rotation.as_rotvec()

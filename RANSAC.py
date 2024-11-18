@@ -186,11 +186,13 @@ def ransac_rigid_transform(src, dst, vis=False,residual_threshold=7.0, stop_prob
     return R_matrix, t_vector, inliers
 
 class CostumOutlierRemoval():
-    def __init__(self):
+    def __init__(self, apply_ransac, e_thresh=1.0):
         self.w = 0.2
         self.p = 0.99
         self.DoF = 3
         self.thresh = 5.0
+        self.apply_ransac = apply_ransac
+        self.e_thresh = e_thresh
 
 
     def fit(self,A, B):
@@ -213,7 +215,7 @@ class CostumOutlierRemoval():
 
         best_estimation_arg = np.argmin(np.median(errors, axis=1))
 
-        errors[errors > 150.0] = np.nan
+        errors[errors > self.e_thresh] = np.nan
         nonnan_count = []
         for e in errors:
             nonnan_count.append(np.count_nonzero(~np.isnan(e)))
@@ -222,8 +224,12 @@ class CostumOutlierRemoval():
         inliers = ~np.isnan(errors[max_arg])
         precetage_of_inliers = np.sum(inliers) / inliers.size
         print(f"precetage of inliers in traslation = {precetage_of_inliers}")
-        sub_A = A[inliers]
-        sub_B = B[inliers]
+        if self.apply_ransac:
+            sub_A = A[inliers]
+            sub_B = B[inliers]
+        else:
+            sub_A = A
+            sub_B = B
         best_trans = np.linalg.lstsq(sub_A, sub_B, rcond=None)[0]
         e = abs(sub_A @ best_trans - sub_B)
         # plt.hist(e)

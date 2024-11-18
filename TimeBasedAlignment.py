@@ -2,6 +2,8 @@ import numpy as np
 import pandas as pd
 import matplotlib
 from scipy.spatial.transform import Rotation as R
+
+import Utils
 from Calibrator import calibrate_rotation
 from Utils import quaternion_rotation_angle_between, quaternion_to_matrix, angle_from_rotation_matrix
 
@@ -176,14 +178,43 @@ def calc_diff_angles(df):
         angles_df = pd.concat([angles_df,new_angle_df], ignore_index=True)
     return angles_df
 
+def correct_axis(i,mat,mat_prev, cc):
+    ax1 = Utils.axis_from_rotation_matrix(mat)
+    angle1 = Utils.angle_from_rotation_matrix(mat)
+    ax_prev = Utils.axis_from_rotation_matrix(mat_prev)
+    an_prev2 = Utils.angle_from_rotation_matrix(mat_prev)
+
+    diff_ax = np.linalg.norm(ax1 - ax_prev)
+    print(diff_ax)
+    if diff_ax > 1.5:
+        cc = -cc
+        print(f"{i}, jump detected!")
+
+    if cc == -1:
+        ax1 = -ax1
+        mat = Utils.create_transformation_matrix_from_axisangle(ax1, -angle1, mat[:3,3])
+
+    return cc, mat
+
+
 def find_samples(hl, ex, dt):
     A = []
     B = []
     samples = []
     df = pd.DataFrame()
-    for i in range(int((hl.shape[0])*0.3),int((hl.shape[0])*0.7)):
+    currection_coeficient = 1
+    # for i in range(int((hl.shape[0])*0.2),int((hl.shape[0])*0.99)):
+    # for i in range(1,5200):
+    for i in range(6432,11200):
     # for i in range(500,600):
+        t_hl = hl.loc[i]
+        M_hl = create_transformation_matrix([t_hl["Q0"], t_hl["Qx"], t_hl["Qy"], t_hl["Qz"]],
+                                            [t_hl['Tx'], t_hl['Ty'], t_hl['Tz']])
 
+        t_hl = hl.loc[i-1]
+        M_hl_prev = create_transformation_matrix([t_hl["Q0"], t_hl["Qx"], t_hl["Qy"], t_hl["Qz"]],
+                                            [t_hl['Tx'], t_hl['Ty'], t_hl['Tz']])
+        currection_coeficient, M_hl = correct_axis(i,M_hl,M_hl_prev,currection_coeficient)
         ex_t = int(hl.loc[i,"timestamp"] - dt)
         ex_closest_index = find_nearest_ex_index(ex_t, ex["timestamp"])
         if (ex_closest_index is None):
@@ -191,13 +222,12 @@ def find_samples(hl, ex, dt):
         t_ex = ex.iloc[ex_closest_index]
         if t_ex.isnull().any():
             continue
-        t_hl = hl.loc[i]
+
         # print(f"ex:{t_ex}\nhl:{t_hl}")
         # find_std_in_angles(t_hl, t_ex)
         M_ex = create_transformation_matrix([t_ex["Q0"],t_ex["Qx"],t_ex["Qy"],t_ex["Qz"]], [t_ex['Tx'],t_ex['Ty'],t_ex['Tz']])
-        M_hl = create_transformation_matrix([t_hl["Q0"],t_hl["Qx"],t_hl["Qy"],t_hl["Qz"]], [t_hl['Tx'],t_hl['Ty'],t_hl['Tz']])
 
-        samples.append({'ref':M_ex, 'target':M_hl, "ref_i":ex_closest_index, "ref_t":ex_t+dt, "target_i":i, "target_t":hl.loc[i,'timestamp']})
+        samples.append({'cc':currection_coeficient,'ref':M_ex, 'target':M_hl, "ref_i":ex_closest_index, "ref_t":ex_t+dt, "target_i":i, "target_t":hl.loc[i,'timestamp']})
         new_df = pd.DataFrame.from_records({'ref':[M_ex], 'tar':[M_hl],"timestamp":[hl.loc[i,'timestamp']]})
         df = pd.concat([df, new_df], ignore_index=True)
 
@@ -292,7 +322,7 @@ hl_copy = hl.copy()
 #hl[['Q0', 'Qx', 'Qy', 'Qz']] = pd.DataFrame(df.tolist(), index=df.index)
 
 samples,diff_angles = find_samples(hl, ex, dt)
-rot, rot_err, inliers, deltas = calibrate_rotation(samples,apply_ransac=False, sampling_ration=sampling_ration, vis=True)
+rot, rot_err, inliers, deltas = calibrate_rotation(samples,apply_ransac=True, sampling_ration=sampling_ration, vis=True)
 # outliers = np.logical_not(inliers)
 # scores = find_outliers(hl, outliers, deltas, sampling_ration)
 # plot_speeds(hl, ex, dt, scores, diff_angles)
