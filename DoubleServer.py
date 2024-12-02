@@ -15,6 +15,7 @@ ex_data = []
 holo_data = []
 ex_socket = None
 holo_socket = None
+is_enough_data = False
 
 def decode_response(response):
     str_list = response
@@ -41,22 +42,28 @@ def encode_transform(F):
 def handle_ex_client(conn):
     with open("ex.txt", 'w+') as f:
         while True:
-            response = conn.recv(1024).decode()
-            f.writelines(response)
-            f.writelines("\n")
-            ex_timestamp, externalSample = decode_response(response.split(','))
-            new_ex_data = {"timestamp":ex_timestamp, "mat":externalSample}
-            ex_data.append(new_ex_data)
+            try:
+                response = conn.recv(4096).decode()
+                f.writelines(response)
+                f.writelines("\n")
+                ex_timestamp, externalSample = decode_response(response.split(','))
+                new_ex_data = {"timestamp":ex_timestamp, "mat":externalSample}
+                ex_data.append(new_ex_data)
+            except:
+                print(f"Error: respose {response}")
 
 def handle_holo_client(conn):
     with open("hl.txt", 'w+') as f:
         while True:
-            response = conn.recv(1024).decode()
-            f.writelines(response)
-            f.writelines("\n")
-            holo_timestamp, holoSample = decode_response(response.split(','))
-            new_holo_data = {"timestamp":holo_timestamp, "mat":holoSample}
-            holo_data.append(new_holo_data)
+            try:
+                response = conn.recv(4096).decode()
+                f.writelines(response)
+                f.writelines("\n")
+                holo_timestamp, holoSample = decode_response(response.split(','))
+                new_holo_data = {"timestamp":holo_timestamp, "mat":holoSample}
+                holo_data.append(new_holo_data)
+            except:
+                print(f"Error: respose {response}")
 
 def start_holo_server(ip='127.0.0.1', port=65432):
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -90,13 +97,13 @@ def start_rec_server(ip='127.0.0.1', port=65430):
 
 def calc_data_enough(enough_thresh = 100):
     if ex_data[0]['timestamp'] > holo_data[0]['timestamp']:
-        for i in range(0,len(ex_data)):
+        for i in range(0,len(holo_data)):
             if ex_data[0]['timestamp'] < holo_data[i]['timestamp']:
                 length_of_intersection = len(ex_data) - i
                 if length_of_intersection > enough_thresh:
                     return True, (0, i)
     elif ex_data[0]['timestamp'] < holo_data[0]['timestamp']:
-        for i in range(0,len(holo_data)):
+        for i in range(0,len(ex_data)):
             if holo_data[0]['timestamp'] < ex_data[i]['timestamp']:
                 length_of_intersection = len(holo_data) - i
                 if length_of_intersection > enough_thresh:
@@ -172,8 +179,9 @@ def find_samples(ex_index, holo_index, enough_thresh):
         t_holo = holo_s["timestamp"]
         m_holo = holo_s["mat"]
         i_after = find_between_timestamps(t_holo, selected_ex_df)
-        i_after = min(i_after, len(selected_holo)-1)
+        i_after = min(i_after, len(selected_ex_df)-1)
         i_before = i_after - 1
+        if i_before < 0: continue
         print(f"{i_after},{r}")
 
         t_before = selected_ex_df.loc[i_before,"timestamp"]
@@ -186,8 +194,15 @@ def find_samples(ex_index, holo_index, enough_thresh):
             samples.append({"ref":m_holo,"target":interpolated_mat})
     return samples
 
+
+def refresh_dataset():
+    ex_data = []
+    holo_data = []
+    is_enough_data = False
+
+
 if __name__ == "__main__":
-    enough_thresh = 50
+    enough_thresh = 500
     holo_thread = threading.Thread(target=start_holo_server)
     ex_thread = threading.Thread(target=start_ex_server)
     # rec_thread = threading.Thread(target=start_rec_server)
@@ -198,22 +213,26 @@ if __name__ == "__main__":
 
 
     # Listening for 'c' key press to stop the server and run calibration
-    is_enough_data = False
-    while not is_enough_data:
-        print(f"ex data recieved: {len(ex_data)}, holo data recieved:{len(holo_data)}")
-        if (len(ex_data) > 0 and len(holo_data)>0):
-            is_enough_data, (ex_index, holo_index) = calc_data_enough(enough_thresh=enough_thresh)
-            if is_enough_data:
-                samples = find_samples(ex_index, holo_index, enough_thresh=enough_thresh)
-                # print(samples)
-                rot, rot_err, inliers, deltas = Calibrator.calibrate_rotation(samples, apply_ransac=True, sampling_ration=1, vis=False)
-                rotated_samples = Calibrator.rotate_samples(samples, rot)
-                trans, trans_err, tras_std = Calibrator.calibrate_translation(rotated_samples)
-                F = Calibrator.make_homogeneous(rot.T)
-                F[:3,3] = trans
-                T = Calibrator.find_T(samples, F)
-                FT_trnsforms = encode_transform(F) + '|' + encode_transform(T)
-                print("result sent")
-                rec_conn.send(FT_trnsforms.encode())
-        time.sleep(1.0)
+
+    while True:
+        while True:
+            print(f"ex data recieved: {len(ex_data)}, holo data recieved:{len(holo_data)}")
+            if (len(ex_data) > 0 and len(holo_data)>0):
+                is_enough_data, (ex_index, holo_index) = calc_data_enough(enough_thresh=enough_thresh)
+                if is_enough_data:
+                    samples = find_samples(ex_index, holo_index, enough_thresh=enough_thresh)
+                    # print(samples)
+                    rot, rot_err, inliers, deltas = Calibrator.calibrate_rotation(samples, apply_ransac=True, sampling_ration=1, vis=False)
+                    rotated_samples = Calibrator.rotate_samples(samples, rot)
+                    trans, trans_err, tras_std = Calibrator.calibrate_translation(rotated_samples)
+                    F = Calibrator.make_homogeneous(rot.T)
+                    F[:3,3] = trans
+                    T = Calibrator.find_T(samples, F)
+                    FT_trnsforms = encode_transform(F) + '|' + encode_transform(T)
+                    print("result sent")
+                    rec_conn.send(FT_trnsforms.encode())
+                    ex_data = ex_data[len(ex_data)-10:]
+                    holo_data = holo_data[len(holo_data)-10:]
+                    is_enough_data = False
+            time.sleep(1.0)
 

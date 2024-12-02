@@ -290,7 +290,7 @@ def find_samples(hl, ex, dt):
     currection_coeficient = 1
     # for i in range(int((hl.shape[0])*0.2),int((hl.shape[0])*0.99)):
     # for i in range(1,5200):
-    for i in range(0,13200, 3):
+    for i in range(0,13200, 15):
     # for i in range(0,len(hl)-1, 1):
         # for i in range(500,600):
         try:

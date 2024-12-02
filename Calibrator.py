@@ -78,13 +78,13 @@ def visalize_rots(ref, target, rot):
                        mutation_scale=20,
                        arrowstyle="-|>",
                        ec=color,
-                       fc=color,
+                       fc='black',
                        linestyle='dashed')
             ax.arrow3D(0, 0, 0,
                        t[0], t[1], t[2],
                        mutation_scale=20,
                        ec=color,
-                       fc='black')
+                       fc=color)
 
 
 
@@ -178,10 +178,10 @@ def calibrate_rotation(samples,sampling_ration,apply_ransac, vis):
     deltas = []
 
     for i in range(0, len(samples), sampling_ration):
-         for j in range(0,i):
-            delta = delta_rotation_samples(samples[i], samples[j], i, j)
-            if delta.valid:
-                deltas.append(delta)
+        j = len(samples) - i - 1
+        delta = delta_rotation_samples(samples[i], samples[j], i, j)
+        if delta.valid:
+            deltas.append(delta)
 
     print(f"Got {len(samples)} samples with {len(deltas)} delta samples")
 
@@ -191,7 +191,7 @@ def calibrate_rotation(samples,sampling_ration,apply_ransac, vis):
     inliers = [True for i in range(ref_points.shape[0])]
     # R_matrix, t_vector, inliers = ransac_rigid_transform(ref_points, target_points, residual_threshold=0.2, stop_probability=0.99, stop_n_inliers=100000)
     if apply_ransac:
-        R_matrix, t_vector, inliers = ransac_rigid_transform(ref_points, target_points, residual_threshold=0.11,stop_probability=0.999999)
+        R_matrix, t_vector, inliers = ransac_rigid_transform(ref_points, target_points, residual_threshold=100000,stop_probability=0.999999)
         ref_points = ref_points[inliers]
         target_points = target_points[inliers]
 
@@ -222,7 +222,7 @@ def calibrate_rotation(samples,sampling_ration,apply_ransac, vis):
     print(f"rotation err = {np.mean(errors)}, rotation std = {np.std(errors):0.8f}")
 
     if vis:
-        visualize_rot_path(ref_points, target_points, rot)
+        # visualize_rot_path(ref_points, target_points, rot)
         visalize_rots(ref_points, target_points, rot)
 
     euler = R.from_matrix(rot).as_euler('zyx', degrees=True)
@@ -295,18 +295,18 @@ def calibrate_translation(samples, apply_ransac=True):
     deltas = []
 
     for i in range(len(samples)):
-        for j in range(i):
-            QAi = samples[i]["ref"][:3, :3].T
-            QAj = samples[j]["ref"][:3, :3].T
-            dQA = QAj - QAi
-            CA = QAj @ (samples[j]["ref"][:3, 3] - samples[j]["target"][:3, 3]) - QAi @ (samples[i]["ref"][:3, 3] - samples[i]["target"][:3, 3])
-            deltas.append((CA, dQA))
+        j = len(samples) - 1
+        QAi = samples[i]["ref"][:3, :3].T
+        QAj = samples[j]["ref"][:3, :3].T
+        dQA = QAj - QAi
+        CA = QAj @ (samples[j]["ref"][:3, 3] - samples[j]["target"][:3, 3]) - QAi @ (samples[i]["ref"][:3, 3] - samples[i]["target"][:3, 3])
+        deltas.append((CA, dQA))
 
-            QBi = samples[i]["target"][:3, :3].T
-            QBj = samples[j]["target"][:3, :3].T
-            dQB = QBj - QBi
-            CB = QBj @ (samples[j]["ref"][:3, 3] - samples[j]["target"][:3, 3]) - QBi @ (samples[i]["ref"][:3, 3] - samples[i]["target"][:3, 3])
-            deltas.append((CB, dQB))
+        QBi = samples[i]["target"][:3, :3].T
+        QBj = samples[j]["target"][:3, :3].T
+        dQB = QBj - QBi
+        CB = QBj @ (samples[j]["ref"][:3, 3] - samples[j]["target"][:3, 3]) - QBi @ (samples[i]["ref"][:3, 3] - samples[i]["target"][:3, 3])
+        deltas.append((CB, dQB))
 
     constants = np.zeros(len(deltas) * 3)
     coefficients = np.zeros((len(deltas) * 3, 3))
