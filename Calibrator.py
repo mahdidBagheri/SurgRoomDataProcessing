@@ -72,7 +72,7 @@ def visalize_rots(ref, target, rot):
         t = target[i].reshape(3)
         angle = np.arccos(np.dot(r,t)/(np.linalg.norm(r)*np.linalg.norm(t)))
         angles.append(angle)
-        if i % 10 == 0:
+        if i % int(L/50) == 0:
             ax.arrow3D(0, 0, 0,
                        r[0], r[1], r[2],
                        mutation_scale=20,
@@ -84,11 +84,10 @@ def visalize_rots(ref, target, rot):
                        t[0], t[1], t[2],
                        mutation_scale=20,
                        ec=color,
-                       fc=color)
+                       fc='black')
 
 
 
-    print(f"mean r:{np.mean(np.linalg.norm(ref, axis=0))}, mean t: {np.mean(np.linalg.norm(target, axis=0))}, rmse angle:{np.linalg.norm(angles)/len(angles)}, mean:{np.mean(angles)}")
     ax.set_title('3D Arrows Demo')
     ax.set_xlabel('x')
     ax.set_ylabel('y')
@@ -160,7 +159,6 @@ def visualize_rot_path(ref, target, rot):
     r1 = rot@ref.T
     r_norm = np.linalg.norm(r, axis=0)
     t_norm = np.linalg.norm(t, axis=0)
-    #cost = np.sum(np.multiply(r_norm,t_norm), axis=0)
     plt.plot(r_norm, label="ref")
     plt.plot(t_norm, label="tar")
     plt.legend()
@@ -168,27 +166,10 @@ def visualize_rot_path(ref, target, rot):
 
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
-
-    h = 0.0
-    s = 1.0  # You can change this value if you want a different saturation
-    v = 1.0
-    # for i in range(ref.shape[0]):
-    #     h = i/ref.shape[0]
-    #     color = hsv_to_rgba(h, s, v)
-
-
-    # print (r)
-    # print(target)
-
     ax.plot(t_pred[0,:], t_pred[1,:], t_pred[2,:], color="red")
     ax.plot(t[0,:], t[1,:], t[2,:], color="blue", linestyle='dashed')
     ax.plot(r1[0,:], r1[1,:], r1[2,:], color="green", linestyle='dashed')
-
     print (f"error: {error/t.shape[1]}")
-
-    # fig.set_xlabel('x')
-    # fig.set_ylabel('y')
-    # fig.set_zlabel('z')
     fig.tight_layout()
     fig.show()
 

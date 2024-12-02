@@ -9,6 +9,7 @@ from Utils import quaternion_rotation_angle_between, quaternion_to_matrix, angle
 
 matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
+from scipy.spatial.transform import Rotation as R, Slerp
 
 def find_mean_dt(ex, hl, SHIFT, COEF, fps):
     delta_ts = []
@@ -195,6 +196,90 @@ def correct_axis(i,mat,mat_prev, cc):
         mat = Utils.create_transformation_matrix_from_axisangle(ax1, -angle1, mat[:3,3])
 
     return cc, mat
+def weighted_transform(transform1, transform2, t):
+    """
+    Computes the weighted mean of two transformations (translation and rotation).
+
+    :param transform1: First transformation (4x4 numpy array).
+    :param transform2: Second transformation (4x4 numpy array).
+    :param t: Weight for the second transformation, 0 <= t <= 1.
+    :return: Weighted transformation (4x4 numpy array).
+    """
+    # Extract translations
+    translation1 = transform1[:3, 3]
+    translation2 = transform2[:3, 3]
+
+    # Weighted average of translations
+    interpolated_translation = (1 - t) * translation1 + t * translation2
+
+    # Extract rotations
+    rotation1 = R.from_matrix(transform1[:3, :3])
+    rotation2 = R.from_matrix(transform2[:3, :3])
+
+    # Perform SLERP for rotations
+    key_times = [0, 1]  # Time points for the rotations
+    rotations = R.from_quat([rotation1.as_quat(), rotation2.as_quat()])
+    slerp = Slerp(key_times, rotations)
+    interpolated_rotation = slerp([t])[0]  # Interpolate at time `t`
+
+    # Construct the interpolated transformation matrix
+    interpolated_transform = np.eye(4)
+    interpolated_transform[:3, :3] = interpolated_rotation.as_matrix()
+    interpolated_transform[:3, 3] = interpolated_translation
+
+    return interpolated_transform
+
+def interpolate_transformation(df, pivot_t):
+    """
+    Interpolates transformation matrix from a dataframe at a given pivot time.
+
+    :param df: DataFrame containing timestamps, translations (Tx, Ty, Tz), and quaternions (Q0, Qx, Qy, Qz).
+    :param pivot_t: Pivot time to interpolate transformation matrix.
+    :return: Interpolated transformation matrix (4x4 numpy array).
+    """
+    # Remove rows with null values in transformation data
+    df = df.dropna(subset=['Tx', 'Ty', 'Tz', 'Q0', 'Qx', 'Qy', 'Qz'])
+
+    # Find the two closest timestamps around pivot_t
+    df_sorted = df.sort_values('timestamp')
+    t1_idx = df_sorted[df_sorted['timestamp'] <= pivot_t].index[-1]
+    t2_idx = df_sorted[df_sorted['timestamp'] > pivot_t].index[0]
+
+    t1 = df_sorted.loc[t1_idx, 'timestamp']
+    t2 = df_sorted.loc[t2_idx, 'timestamp']
+
+    # Calculate the weight for interpolation
+    t = (pivot_t - t1) / (t2 - t1)
+
+    # Get the transformation matrices for the two timestamps
+    quaternion1 = df_sorted.loc[t1_idx, ['Qx', 'Qy', 'Qz', 'Q0']].to_numpy()
+    translation1 = df_sorted.loc[t1_idx, ['Tx', 'Ty', 'Tz']].to_numpy()
+    transform1 = create_transformation_matrix(quaternion1, translation1)
+
+    quaternion2 = df_sorted.loc[t2_idx, ['Qx', 'Qy', 'Qz', 'Q0']].to_numpy()
+    translation2 = df_sorted.loc[t2_idx, ['Tx', 'Ty', 'Tz']].to_numpy()
+    transform2 = create_transformation_matrix(quaternion2, translation2)
+
+    # Interpolate the transformation
+    interpolated_transform = weighted_transform(transform1, transform2, t)
+
+    return interpolated_transform
+
+def create_transformation_matrix(quaternion, translation):
+    """
+    Creates a transformation matrix from quaternion and translation.
+
+    :param quaternion: Quaternion (array-like, 4 elements).
+    :param translation: Translation vector (array-like, 3 elements).
+    :return: Transformation matrix (4x4 numpy array).
+    """
+    rotation = R.from_quat(quaternion).as_matrix()
+
+    transformation_matrix = np.eye(4)
+    transformation_matrix[:3, :3] = rotation
+    transformation_matrix[:3, 3] = translation
+
+    return transformation_matrix
 
 
 def find_samples(hl, ex, dt):
@@ -205,31 +290,27 @@ def find_samples(hl, ex, dt):
     currection_coeficient = 1
     # for i in range(int((hl.shape[0])*0.2),int((hl.shape[0])*0.99)):
     # for i in range(1,5200):
-    for i in range(6432,11200):
-    # for i in range(500,600):
-        t_hl = hl.loc[i]
-        M_hl = create_transformation_matrix([t_hl["Q0"], t_hl["Qx"], t_hl["Qy"], t_hl["Qz"]],
-                                            [t_hl['Tx'], t_hl['Ty'], t_hl['Tz']])
+    for i in range(0,13200, 3):
+    # for i in range(0,len(hl)-1, 1):
+        # for i in range(500,600):
+        try:
+            t_hl = hl.loc[i]
+            M_hl = create_transformation_matrix([t_hl["Q0"], t_hl["Qx"], t_hl["Qy"], t_hl["Qz"]],
+                                                [t_hl['Tx'], t_hl['Ty'], t_hl['Tz']])
 
-        t_hl = hl.loc[i-1]
-        M_hl_prev = create_transformation_matrix([t_hl["Q0"], t_hl["Qx"], t_hl["Qy"], t_hl["Qz"]],
-                                            [t_hl['Tx'], t_hl['Ty'], t_hl['Tz']])
-        currection_coeficient, M_hl = correct_axis(i,M_hl,M_hl_prev,currection_coeficient)
-        ex_t = int(hl.loc[i,"timestamp"] - dt)
-        ex_closest_index = find_nearest_ex_index(ex_t, ex["timestamp"])
-        if (ex_closest_index is None):
-            continue
-        t_ex = ex.iloc[ex_closest_index]
-        if t_ex.isnull().any():
-            continue
+            t_hl = hl.loc[i-1]
+            M_hl_prev = create_transformation_matrix([t_hl["Q0"], t_hl["Qx"], t_hl["Qy"], t_hl["Qz"]],
+                                                [t_hl['Tx'], t_hl['Ty'], t_hl['Tz']])
+            # currection_coeficient, M_hl = correct_axis(i,M_hl,M_hl_prev,currection_coeficient)
+            ex_pivot_t = int(hl.loc[i,"timestamp"] - dt)
+            # ex_closest_index = find_nearest_ex_index(ex_t, ex["timestamp"])
+            M_ex = interpolate_transformation(ex,ex_pivot_t)
 
-        # print(f"ex:{t_ex}\nhl:{t_hl}")
-        # find_std_in_angles(t_hl, t_ex)
-        M_ex = create_transformation_matrix([t_ex["Q0"],t_ex["Qx"],t_ex["Qy"],t_ex["Qz"]], [t_ex['Tx'],t_ex['Ty'],t_ex['Tz']])
-
-        samples.append({'cc':currection_coeficient,'ref':M_ex, 'target':M_hl, "ref_i":ex_closest_index, "ref_t":ex_t+dt, "target_i":i, "target_t":hl.loc[i,'timestamp']})
-        new_df = pd.DataFrame.from_records({'ref':[M_ex], 'tar':[M_hl],"timestamp":[hl.loc[i,'timestamp']]})
-        df = pd.concat([df, new_df], ignore_index=True)
+            samples.append({'ref':M_ex, 'target':M_hl, "ref_t":ex_pivot_t+dt, "target_i":i, "target_t":hl.loc[i,'timestamp']})
+            new_df = pd.DataFrame.from_records({'ref':[M_ex], 'tar':[M_hl],"timestamp":[hl.loc[i,'timestamp']]})
+            df = pd.concat([df, new_df], ignore_index=True)
+        except:
+            print("couldnt find a mach")
 
     diff_angles = calc_diff_angles(df)
     return samples, diff_angles
@@ -264,7 +345,7 @@ def save_aligned_data(ex, hl ,dt):
     df.to_csv("combined_data.csv")
 
 n = 5
-sampling_ration = 1
+sampling_ration = 2
 if n == 3:
     SHIFT = [149] # for n = 3
     COEF = [1.506533] # for n = 3
@@ -322,6 +403,7 @@ hl_copy = hl.copy()
 #hl[['Q0', 'Qx', 'Qy', 'Qz']] = pd.DataFrame(df.tolist(), index=df.index)
 
 samples,diff_angles = find_samples(hl, ex, dt)
+
 rot, rot_err, inliers, deltas = calibrate_rotation(samples,apply_ransac=True, sampling_ration=sampling_ration, vis=True)
 # outliers = np.logical_not(inliers)
 # scores = find_outliers(hl, outliers, deltas, sampling_ration)
