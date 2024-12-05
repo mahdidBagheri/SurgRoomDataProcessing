@@ -1,22 +1,16 @@
 import copy
-import random
 
-from RANSAC import ransac_rigid_transform, TranslationEstimator, CostumOutlierRemoval
+from Config.CalibrationConfig import rotation_residual,translation_residual
+from RANSAC import ransac_rigid_transform, CostumOutlierRemoval, ransac_mean_transformation
 import numpy as np
-from scipy.spatial.transform import Rotation as R
 from scipy.linalg import svd
-from scipy.linalg import solve
 from sklearn.linear_model import RANSACRegressor
-from sklearn.linear_model import LinearRegression
-import cv2
-from numpy.linalg import inv, det
+from numpy.linalg import inv
 import matplotlib
 matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
-from Utils import _arrow3D
 from Utils import axis_from_rotation_matrix, angle_from_rotation_matrix
 import matplotlib.colors as mcolors
-from numpy.linalg import inv
 from sklearn.linear_model import LinearRegression
 
 def hsv_to_rgba(h, s, v):
@@ -55,8 +49,7 @@ def delta_rotation_samples(s1, s2, i, j):
     ds.index_2 = j
     return ds
 
-
-def visalize_rots(ref, target, rot):
+def visalize_rots(ref, target, rot, n=20):
     assert ref.shape[0] == target.shape[0]
     h = 0.0
     s = 1.0  # You can change this value if you want a different saturation
@@ -72,7 +65,7 @@ def visalize_rots(ref, target, rot):
         t = target[i].reshape(3)
         angle = np.arccos(np.dot(r,t)/(np.linalg.norm(r)*np.linalg.norm(t)))
         angles.append(angle)
-        if i % int(L/50) == 0:
+        if i % int(L/n) == 0:
             ax.arrow3D(0, 0, 0,
                        r[0], r[1], r[2],
                        mutation_scale=20,
@@ -86,8 +79,6 @@ def visalize_rots(ref, target, rot):
                        ec=color,
                        fc=color)
 
-
-
     ax.set_title('3D Arrows Demo')
     ax.set_xlabel('x')
     ax.set_ylabel('y')
@@ -99,9 +90,6 @@ def visalize_rots(ref, target, rot):
     tobehist = np.linalg.norm(angles)/np.sqrt(len(angles))
     plt.hist(angles)
     plt.show()
-
-
-
 
 def best_rotation_transform(r, t):
     """
@@ -157,12 +145,6 @@ def visualize_rot_path(ref, target, rot):
     t = target.T
     error, tscale, t_pred = best_rotation_transform(r.T,t.T)
     r1 = rot@ref.T
-    r_norm = np.linalg.norm(r, axis=0)
-    t_norm = np.linalg.norm(t, axis=0)
-    plt.plot(r_norm, label="ref")
-    plt.plot(t_norm, label="tar")
-    plt.legend()
-    plt.show()
 
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
@@ -171,13 +153,13 @@ def visualize_rot_path(ref, target, rot):
     ax.plot(r1[0,:], r1[1,:], r1[2,:], color="green", linestyle='dashed')
     print (f"error: {error/t.shape[1]}")
     fig.tight_layout()
-    fig.show()
+    plt.show(block=False)
 
 
-def calibrate_rotation(samples,sampling_ration,apply_ransac, vis):
+def calibrate_rotation(samples,apply_ransac, vis):
     deltas = []
 
-    for i in range(0, len(samples), sampling_ration):
+    for i in range(0, len(samples)):
         j = len(samples) - i - 1
         delta = delta_rotation_samples(samples[i], samples[j], i, j)
         if delta.valid:
@@ -189,9 +171,8 @@ def calibrate_rotation(samples,sampling_ration,apply_ransac, vis):
 
     target_points = np.array([delta.target for delta in deltas])
     inliers = [True for i in range(ref_points.shape[0])]
-    # R_matrix, t_vector, inliers = ransac_rigid_transform(ref_points, target_points, residual_threshold=0.2, stop_probability=0.99, stop_n_inliers=100000)
     if apply_ransac:
-        R_matrix, t_vector, inliers = ransac_rigid_transform(ref_points, target_points, residual_threshold=100000,stop_probability=0.999999)
+        R_matrix, t_vector, inliers = ransac_rigid_transform(ref_points, target_points, residual_threshold=rotation_residual,stop_probability=0.9999)
         ref_points = ref_points[inliers]
         target_points = target_points[inliers]
 
@@ -211,25 +192,18 @@ def calibrate_rotation(samples,sampling_ration,apply_ransac, vis):
         i[2, 2] = -1
 
     rot = V.dot(i).dot(U.T)
-    # rot = rot.T
     errors = []
     for k in range(ref_points.shape[0]):
         e = np.linalg.norm(rot @ ref_points[k].reshape(3,1) - target_points[k].reshape(3,1))
         errors.append(e)
-    # plt.hist(errors)
-    # plt.show()
+
     err = np.mean(errors)
     print(f"rotation err = {np.mean(errors)}, rotation std = {np.std(errors):0.8f}")
 
     if vis:
-        # visualize_rot_path(ref_points, target_points, rot)
+        visualize_rot_path(ref_points, target_points, rot)
         visalize_rots(ref_points, target_points, rot)
 
-    euler = R.from_matrix(rot).as_euler('zyx', degrees=True)
-
-    # print(rot)
-    # print(np.linalg.det(rot))
-    # print(f"Calibrated rotation: yaw={euler[0]:.2f} pitch={euler[1]:.2f} roll={euler[2]:.2f}")
     return rot, err, inliers, deltas
 
 def add_axis_noise(axis, std):
@@ -295,7 +269,7 @@ def calibrate_translation(samples, apply_ransac=True):
     deltas = []
 
     for i in range(len(samples)):
-        j = len(samples) - 1
+        j = len(samples) - i - 1
         QAi = samples[i]["ref"][:3, :3].T
         QAj = samples[j]["ref"][:3, :3].T
         dQA = QAj - QAi
@@ -318,50 +292,11 @@ def calibrate_translation(samples, apply_ransac=True):
 
     A = coefficients
     B = constants
-    costumOutlierRemoval = CostumOutlierRemoval(apply_ransac=True)
+    costumOutlierRemoval = CostumOutlierRemoval(apply_ransac=True, e_thresh=translation_residual)
     trans, trans_error, trans_std = costumOutlierRemoval.fit(A,B)
-    # # ransac = RANSACRegressor(TranslationEstimator(), residual_threshold=50.0)
-    # ransac = RANSACRegressor(LinearRegression(), residual_threshold=30.0)
-    #
-    # refs = np.array([s['ref'] for s in samples])
-    # targets = np.array([s['target'] for s in samples])
-    # ransac.fit(A,B)
-    # # ransac.fit(refs,targets)
-    #
-    # # Get the inliers
-    # inlier_mask = ransac.inlier_mask_
-    # A_inliers = A[inlier_mask]
-    # B_inliers = B[inlier_mask]
-    #
-    # # Fit the model again using only inliers
-    # model = LinearRegression()
-    # model.fit(A_inliers, B_inliers)
-    # trans = model.coef_
-    #
-    # trans2 = np.linalg.lstsq(coefficients[inlier_mask], constants[inlier_mask], rcond=None)[0]
-    # # trans3 = solve(coefficients, constants)
-    #
-    # # U, s, Vt = svd(coefficients, full_matrices=False)
-    # #
-    # # # Compute the pseudo-inverse of the singular values matrix
-    # # S_inv = np.diag(1 / s)
-    # #
-    # # # Solve for the least squares solution
-    # # trans4 = Vt.T @ S_inv @ U.T @ constants
-    #
-    #
-    # err = []
-    # for i in range(len(coefficients)):
-    #     Ax = np.dot(coefficients[i,:] , trans)
-    #     a = Ax - constants[i]
-    #     err.append(abs(a))
-    #     # print(a)
-    # err = np.array(err)
-    # trans_error = np.mean(err)
-    # print(f"translation error = {trans_error}, trans std={np.std(err)}")
     transcm = trans
 
-    print(f"Calibrated translation x={transcm[0]:.2f} y={transcm[1]:.2f} z={transcm[2]:.2f}, error:{trans_error}")
+    print(f"Calibrated translation x={transcm[0]:.2f} y={transcm[1]:.2f} z={transcm[2]:.2f}, error:{trans_error:.2f}")
     return trans, trans_error, trans_std
 
 def solve_ax_b_with_ransac(A, B, residual_threshold=10.0):
@@ -405,31 +340,6 @@ def rotate_samples(samples, rot):
         new_samples[i]["target"] = R2
     return new_samples
 
-# Q0 = convert(noise=False, s="0.8655022\t0.3619636\t0.346249\t11.01549\t\n0.3356658\t0.09396958\t-0.9372824\t-11.96935\t\n-0.371799\t0.927444\t-0.04016793\t-9.240864\t\n0\t0\t0\t1\t\n")
-# R0 = convert(noise=False, s="0.864244\t0.4835299\t-0.1388568\t-7.749919\t\n-0.3799747\t0.8083051\t0.4497355\t-14.12503\t\n0.3296992\t-0.3359192\t0.882302\t-9.50906\t\n0\t0\t0\t1\t\n")
-# Q1 = convert(noise=False, s="0.6327188\t-0.6597806\t-0.4054091\t3.185164\t\n-0.6224115\t-0.1218104\t-0.7731535\t-16.78614\t\n0.4607286\t0.7415201\t-0.4877268\t-7.621033\t\n0\t0\t0\t1\t\n")
-# R1 = convert(noise=False, s="-0.2949208\t0.5418206\t-0.7870532\t-7.749919\t\n-0.2990566\t0.7299677\t0.6145832\t-14.12503\t\n0.9075173\t0.4166265\t-0.05324769\t-9.50906\t\n0\t0\t0\t1\t\n")
-# Q2 = convert(noise=False, s="-0.2933937\t-0.5215114\t0.8012155\t12.69218\t\n0.2654409\t-0.8495843\t-0.455794\t0.2045612\t\n0.9184017\t0.07894827\t0.3876928\t13.74288\t\n0\t0\t0\t1\t\n")
-# R2 = convert(noise=False, s="-0.3691924\t-0.476792\t-0.7977262\t-7.749919\t\n0.7123106\t0.4061498\t-0.5724127\t-14.12503\t\n0.5969182\t-0.7795589\t0.1896763\t-9.50906\t\n0\t0\t0\t1\t\n")
-# Q3 = convert(noise=False, s="0.6396689\t0.7565885\t0.1356382\t3.497107\t\n-0.2200595\t0.01118261\t0.9754225\t12.99156\t\n0.7364765\t-0.653796\t0.1736476\t12.9996\t\n0\t0\t0\t1\t\n")
-# R3 = convert(noise=False, s="0.5003181\t-0.4941545\t0.7109805\t-7.749919\t\n0.02558181\t-0.8123491\t-0.5826108\t-14.12503\t\n0.8654639\t0.309679\t-0.3937918\t-9.50906\t\n0\t0\t0\t1\t\n")
-# Q4 = convert(noise=False, s="-0.3149856\t0.9490425\t-0.01013368\t-8.39291\t\n0.6556992\t0.2098811\t-0.7252646\t-6.500123\t\n-0.68618\t-0.2350925\t-0.688396\t-15.40479\t\n0\t0\t0\t1\t\n")
-# R4 = convert(noise=False, s="0.4248509\t0.5857432\t0.6902223\t-7.749919\t\n-0.1650455\t0.799794\t-0.5771391\t-14.12503\t\n-0.890091\t0.1312801\t0.4364674\t-9.50906\t\n0\t0\t0\t1\t\n")
-#
-# H0 = convert(noise=False, s="0.9750824\t-0.1413145\t0.1710101\t0\t\n0.1710101\t0.9698463\t-0.1736483\t0\t\n-0.1413145\t0.1985658\t0.9698463\t0\t\n0\t0\t0\t1\t\n")
-# H1 = convert(noise=False, s="0.3723454\t0.325589\t-0.8691092\t0\t\n-0.7641872\t0.6389597\t-0.088025\t0\t\n0.5266658\t0.6969378\t0.4867247\t0\t\n0\t0\t0\t1\t\n")
-# H2 = convert(noise=False, s="-0.2573245\t-0.9287764\t-0.2667563\t0\t\n-0.03237873\t0.2841843\t-0.9582229\t0\t\n0.9657826\t-0.2379368\t-0.1032003\t0\t\n0\t0\t0\t1\t\n")
-# H3 = convert(noise=False, s="0.8150225\t0.1213478\t0.5665802\t0\t\n-0.02873431\t-0.9681571\t0.24869\t0\t\n0.5787165\t-0.2189682\t-0.785583\t0\t\n0\t0\t0\t1\t\n")
-# H4 = convert(noise=False, s="-0.07648528\t0.1817485\t0.9803661\t0\t\n0.5426667\t0.832449\t-0.1119892\t0\t\n-0.8364586\t0.5234464\t-0.1622989\t0\t\n0\t0\t0\t1\t\n")
-#
-# samples = [
-#     {'ref': Q0, 'target': R0},
-#     {'ref': Q1, 'target': R1},
-#     {'ref': Q2, 'target': R2},
-#     {'ref': Q3, 'target': R3},
-#     {'ref': Q4, 'target': R4}
-# ]
-
 def read_from_txt(txt_file):
     samples = []
     with open(txt_file, 'r') as f:
@@ -439,54 +349,25 @@ def read_from_txt(txt_file):
             tar_mat = np.reshape(np.asarray([float(l) for l in lines[i+1].split(',')[:-1]]),(4,4))
             samples.append({'ref':ref_mat, 'target':tar_mat})
     return samples
-def find_T(samples, F):
-    R1 = samples[10]['ref']
-    Q1 = samples[10]['target']
-    h = inv(F) @ R1
-    P = inv(h) @ Q1
-    print(P)
-    return P
+
+
+def find_T(samples, F, threshold = 1):
+    preds = []
+    for s in range(len(samples)):
+        R1 = samples[s]['ref']
+        Q1 = samples[s]['target']
+        h = inv(F) @ R1
+        P = inv(h) @ Q1
+        preds.append(P)
+    mean_transformation = ransac_mean_transformation(preds, threshold)
+
+    return mean_transformation
 
 if __name__ == "__main__":
     samples = read_from_txt("F:\work\ARassis\\tracking\calibration\CalibrationTest\Assets\\tracks.txt")
-    rot, err, inliers, deltas= calibrate_rotation(samples, vis=False, sampling_ration=1 , apply_ransac=False)
+    rot, err, inliers, deltas= calibrate_rotation(samples, vis=False , apply_ransac=False)
     print(rot)
     a = 0
     rotated_samples = rotate_samples(samples, rot)
     trans, trans_err, tras_std = calibrate_translation(rotated_samples)
     print(rot)
-
-"""
-F
-0.75063	-0.40782	0.51984	0.00000
-0.64086	0.64086	-0.42262	0.00000
--0.16079	0.65037	0.74240	0.00000
-0.00000	0.00000	0.00000	1.00000
-
-tracker to hololens
-0.95388	0.23795	0.18301	10.00000
-0.12941	0.22414	-0.96593	-15.00000
--0.27087	0.94506	0.18301	-5.00000
-0.00000	0.00000	0.00000	1.00000
-"""
-# F = np.eye(4)
-# F[:3,:3] = rot.T
-# F[:3, 3] = trans
-# # print(Q0)
-# # print(R0)
-# h = F @ R1
-# P = inv(h) @ Q1
-# print("\n")
-# print("P")
-# print(P)
-# a=0
-
-
-# for s in samples:
-#     # print(s)
-#     q = s['ref']
-#     r = s['target']
-#
-#     h = F @ q[:4, :4]
-#     P = r[:4, :4].T @ h
-#     print(P)

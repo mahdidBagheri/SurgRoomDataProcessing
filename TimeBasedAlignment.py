@@ -3,6 +3,7 @@ import pandas as pd
 import matplotlib
 from scipy.spatial.transform import Rotation as R
 
+import Calibrator
 import Utils
 from Calibrator import calibrate_rotation
 from Utils import quaternion_rotation_angle_between, quaternion_to_matrix, angle_from_rotation_matrix
@@ -404,7 +405,15 @@ hl_copy = hl.copy()
 
 samples,diff_angles = find_samples(hl, ex, dt)
 
-rot, rot_err, inliers, deltas = calibrate_rotation(samples,apply_ransac=True, sampling_ration=sampling_ration, vis=True)
+rot, rot_err, inliers, deltas = calibrate_rotation(samples,apply_ransac=True, vis=True)
+rotated_samples = Calibrator.rotate_samples(samples, rot)
+trans, trans_err, tras_std = Calibrator.calibrate_translation(rotated_samples)
+F = Calibrator.make_homogeneous(rot.T)
+F[:3, 3] = trans
+T = Calibrator.find_T(samples, F, threshold=0.1)
+print(F)
+print("\n")
+print(T)
 # outliers = np.logical_not(inliers)
 # scores = find_outliers(hl, outliers, deltas, sampling_ration)
 # plot_speeds(hl, ex, dt, scores, diff_angles)

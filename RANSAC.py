@@ -142,6 +142,45 @@ class TranslationEstimator(BaseEstimator, RegressorMixin):
         A_translated = self.predict(A)
         return -np.mean(np.linalg.norm(A_translated - B, axis=1)*2)
 
+def compute_error(matrix1, matrix2):
+    """Calculate the Frobenius norm as the error metric."""
+    return np.linalg.norm(matrix1 - matrix2, ord='fro')
+
+def ransac_mean_transformation(matrices, threshold, max_iterations=1000):
+    """
+    Compute the mean transformation matrix using RANSAC for outlier removal.
+
+    Parameters:
+        matrices (list of np.ndarray): List of transformation matrices (4x4).
+        threshold (float): Error threshold to consider a matrix as an inlier.
+        max_iterations (int): Maximum number of RANSAC iterations.
+
+    Returns:
+        np.ndarray: The mean transformation matrix computed from inliers.
+    """
+    best_inliers = []
+    best_model = None
+
+    for _ in range(max_iterations):
+        # Randomly sample one matrix
+        idx = np.random.randint(len(matrices))
+        candidate_matrix = matrices[idx]
+
+        # Compute inliers
+        inliers = [m for m in matrices if compute_error(candidate_matrix, m) < threshold]
+
+        # Update the best model if this one has more inliers
+        if len(inliers) > len(best_inliers):
+            best_inliers = inliers
+            best_model = candidate_matrix
+
+    if not best_inliers:
+        raise ValueError("RANSAC failed to find a sufficient number of inliers.")
+
+    # Compute the mean of the inlier matrices
+    mean_matrix = np.mean(best_inliers, axis=0)
+
+    return mean_matrix
 def ransac_rigid_transform(src, dst, vis=False,residual_threshold=7.0, stop_probability=0.99999, stop_n_inliers=4):
     def estimate_rigid_transform(src, dst):
         assert src.shape == dst.shape
