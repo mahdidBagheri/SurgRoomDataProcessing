@@ -6,7 +6,18 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using UnityEngine;
-
+using System.Diagnostics;
+using UnityEngine;
+using System;
+using System.Collections.Generic;
+using System.Net.Sockets;
+using System.Text;
+using System.Threading;
+using UnityEditor.PackageManager;
+using System.IO;
+using static UnityEditor.PlayerSettings;
+using System.Net;
+using System.Diagnostics;
 public class ExternalDataSender : MonoBehaviour
 {
     public GameObject Endoscope;
@@ -33,9 +44,11 @@ public class ExternalDataSender : MonoBehaviour
     private string currentTime = "0";
     Matrix4x4 TrckerFromExternalTrackerVeiw;
     Matrix4x4 EndoscopeFromExternalTrackerVeiw;
+    DateTime utcNow;
     // Start is called before the first frame update
     void Start()
     {
+        
         ConnectToExServer();
         StartSendThread();
     }
@@ -43,9 +56,10 @@ public class ExternalDataSender : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
-
-
-        currentTime = Time.time.ToString();
+        utcNow = DateTime.UtcNow;
+        currentTime = $"{(long)(utcNow - new DateTime(1970, 1, 1)).TotalMilliseconds}";
+        UnityEngine.Debug.Log($"{currentTime}");
+        
         TrckerFromExternalTrackerVeiw = this.GetRelativeMatrix(Tracker.transform, ExternalTracker.transform);
         EndoscopeFromExternalTrackerVeiw = this.GetRelativeMatrix(Endoscope.transform, ExternalTracker.transform);
 
@@ -88,11 +102,11 @@ public class ExternalDataSender : MonoBehaviour
         {
             exClient = new TcpClient(serverIP, exPort);
             exStream = exClient.GetStream();
-            Debug.Log("Connected to server");
+            UnityEngine.Debug.Log("Connected to server");
         }
         catch (SocketException e)
         {
-            Debug.LogError($"SocketException: {e}");
+            UnityEngine.Debug.LogError($"SocketException: {e}");
         }
     }
 
@@ -104,11 +118,11 @@ public class ExternalDataSender : MonoBehaviour
             exClientToHoloListener.Start();
             exClientToHolo = exClientToHoloListener.AcceptTcpClient();
             exStreamToHolo = exClientToHolo.GetStream();
-            Debug.Log("Connected to exholo server");
+            UnityEngine.Debug.Log("Connected to exholo server");
         }
         catch (SocketException e)
         {
-            Debug.LogError($"SocketException: {e}");
+            UnityEngine.Debug.LogError($"SocketException: {e}");
         }
     }
 
@@ -121,7 +135,7 @@ public class ExternalDataSender : MonoBehaviour
 
             Matrix4x4 t = TrckerFromExternalTrackerVeiw;
             Matrix4x4 e = EndoscopeFromExternalTrackerVeiw;
-            Debug.Log(e);
+            UnityEngine.Debug.Log(e);
             string dataToSend = $"{t.m00},{t.m01},{t.m02},{t.m03},{t.m10},{t.m11},{t.m12},{t.m13},{t.m20},{t.m21},{t.m22},{t.m23},{t.m30},{t.m31},{t.m32},{t.m33}|" +
                                 $"{e.m00},{e.m01},{e.m02},{e.m03},{e.m10},{e.m11},{e.m12},{e.m13},{e.m20},{e.m21},{e.m22},{e.m23},{e.m30},{e.m31},{e.m32},{e.m33}";
             byte[] data = Encoding.ASCII.GetBytes(dataToSend);

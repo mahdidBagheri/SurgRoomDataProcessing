@@ -67,7 +67,7 @@ def start_holoserver(ip, port, name):
             response = conn.recv(4096).decode()
             holo_timestamp, holoSample = decode_response(response.split(','))
             new_data = {"timestamp":holo_timestamp, "mat":holoSample}
-            # print(f"{name} data recieved")
+            print(f"{name} data recieved {response}")
 
             holo_data.append(new_data)
 
@@ -87,7 +87,7 @@ def start_exserver(ip, port, name):
             response = conn.recv(4096).decode()
             holo_timestamp, holoSample = decode_response(response.split(','))
             new_data = {"timestamp":holo_timestamp, "mat":holoSample}
-            # print(f"{name} data recieved")
+            print(f"{name} data recieved {response}")
             ex_data.append(new_data)
         except ConnectionResetError:
             print('Connection reset by peer')
@@ -187,6 +187,7 @@ def find_samples(ex_index, holo_index, enough_thresh):
             continue
         t_holo = holo_s["timestamp"]
         m_holo = holo_s["mat"]
+        if np.all(m_holo[:3,:3] == np.eye(3)): continue
         i_after = find_between_timestamps(t_holo, selected_ex_df)
         i_after = min(i_after, len(selected_ex_df)-1)
         i_before = i_after - 1
