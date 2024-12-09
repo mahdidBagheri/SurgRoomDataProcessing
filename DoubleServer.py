@@ -67,7 +67,7 @@ def start_holoserver(ip, port, name):
             response = conn.recv(4096).decode()
             holo_timestamp, holoSample = decode_response(response.split(','))
             new_data = {"timestamp":holo_timestamp, "mat":holoSample}
-            print(f"{name} data recieved {response}")
+            # print(f"{name} data recieved {response}")
 
             holo_data.append(new_data)
 
@@ -87,7 +87,7 @@ def start_exserver(ip, port, name):
             response = conn.recv(4096).decode()
             holo_timestamp, holoSample = decode_response(response.split(','))
             new_data = {"timestamp":holo_timestamp, "mat":holoSample}
-            print(f"{name} data recieved {response}")
+            # print(f"{name} data recieved {response}")
             ex_data.append(new_data)
         except ConnectionResetError:
             print('Connection reset by peer')
@@ -213,7 +213,8 @@ def connect_to_servers():
 if __name__ == "__main__":
     enough_thresh = Config.Enough_samples
     rec_conn = connect_to_servers()
-
+    last_rot_error = 1000000
+    last_trans_error = 1000000
     while True:
 
         print(f"ex data recieved: {len(ex_data)}, holo data recieved:{len(holo_data)}")
@@ -223,12 +224,17 @@ if __name__ == "__main__":
                 samples = find_samples(ex_index, holo_index, enough_thresh=enough_thresh)
                 rot, rot_err, inliers, deltas = Calibrator.calibrate_rotation(samples, apply_ransac=True, vis=False)
                 trans, trans_err, tras_std = Calibrator.calibrate_translation(samples, rot)
-                F = Calibrator.make_homogeneous(rot.T)
-                F[:3, 3] = trans
-                T = Calibrator.find_T(samples, F)
-                FT_trnsforms = encode_transform(F) + '|' + encode_transform(T)
-                print("result sent")
-                rec_conn.send(FT_trnsforms.encode())
+                print(f"last rot:{last_rot_error}, rot_err:{rot_err}, last trans:{last_trans_error}, trans_err:{trans_err}")
+
+                if (last_rot_error > rot_err and last_trans_error > trans_err):
+                    last_rot_error = rot_err
+                    last_trans_error = trans_err
+                    F = Calibrator.make_homogeneous(rot.T)
+                    F[:3, 3] = trans
+                    T = Calibrator.find_T(samples, F)
+                    FT_trnsforms = encode_transform(F) + '|' + encode_transform(T)
+                    print("result sent")
+                    rec_conn.send(FT_trnsforms.encode())
                 ex_data = ex_data[len(ex_data) - Config.retain_data:]
                 holo_data = holo_data[len(holo_data) - Config.retain_data:]
                 is_enough_data = False
