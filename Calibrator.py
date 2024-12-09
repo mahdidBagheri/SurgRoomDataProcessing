@@ -265,21 +265,22 @@ def convert(s: str, noise=False):
         arr = add_noise(arr)
     return arr
 
-def calibrate_translation(samples, apply_ransac=True):
+def calibrate_translation(rotated_samples, rot, apply_ransac=True):
+    rotated_samples = rotate_samples(rotated_samples, rot)
     deltas = []
 
-    for i in range(len(samples)):
-        j = len(samples) - i - 1
-        QAi = samples[i]["ref"][:3, :3].T
-        QAj = samples[j]["ref"][:3, :3].T
+    for i in range(len(rotated_samples)):
+        j = len(rotated_samples) - i - 1
+        QAi = rotated_samples[i]["ref"][:3, :3].T
+        QAj = rotated_samples[j]["ref"][:3, :3].T
         dQA = QAj - QAi
-        CA = QAj @ (samples[j]["ref"][:3, 3] - samples[j]["target"][:3, 3]) - QAi @ (samples[i]["ref"][:3, 3] - samples[i]["target"][:3, 3])
+        CA = QAj @ (rotated_samples[j]["ref"][:3, 3] - rotated_samples[j]["target"][:3, 3]) - QAi @ (rotated_samples[i]["ref"][:3, 3] - rotated_samples[i]["target"][:3, 3])
         deltas.append((CA, dQA))
 
-        QBi = samples[i]["target"][:3, :3].T
-        QBj = samples[j]["target"][:3, :3].T
+        QBi = rotated_samples[i]["target"][:3, :3].T
+        QBj = rotated_samples[j]["target"][:3, :3].T
         dQB = QBj - QBi
-        CB = QBj @ (samples[j]["ref"][:3, 3] - samples[j]["target"][:3, 3]) - QBi @ (samples[i]["ref"][:3, 3] - samples[i]["target"][:3, 3])
+        CB = QBj @ (rotated_samples[j]["ref"][:3, 3] - rotated_samples[j]["target"][:3, 3]) - QBi @ (rotated_samples[i]["ref"][:3, 3] - rotated_samples[i]["target"][:3, 3])
         deltas.append((CB, dQB))
 
     constants = np.zeros(len(deltas) * 3)

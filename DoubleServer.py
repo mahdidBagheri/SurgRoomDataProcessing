@@ -77,6 +77,7 @@ def start_holoserver(ip, port, name):
             conn, server_socket = connect(ip=ip, port=port, name=name)
         except:
             print(f"{name} Error: respose {response}")
+            time.sleep(0.5)
 
 def start_exserver(ip, port, name):
     conn, server_socket = connect(ip=ip, port=port, name=name)
@@ -93,7 +94,7 @@ def start_exserver(ip, port, name):
             conn, server_socket = connect(ip=ip, port=port, name=name)
         except:
             print(f"{name} Error: respose {response}")
-
+            time.sleep(0.5)
 def start_rec_server(ip='127.0.0.1', port=65430):
     rec_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     rec_socket.bind((ip, port))
@@ -202,33 +203,33 @@ def find_samples(ex_index, holo_index, enough_thresh):
             samples.append({"ref":m_holo,"target":interpolated_mat})
     return samples
 
+def connect_to_servers():
+    threading.Thread(target=start_holoserver, args=("127.0.0.1", 65432, "holo")).start()
+    threading.Thread(target=start_exserver, args=("127.0.0.1", 65431, "extern")).start()
+    rec_conn = start_rec_server()
+    return rec_conn
+
 if __name__ == "__main__":
     enough_thresh = Config.Enough_samples
-    threading.Thread(target=start_holoserver, args=("127.0.0.1",65432,"holo")).start()
-    threading.Thread(target=start_exserver, args=("127.0.0.1",65431,"extern")).start()
-
-    rec_conn = start_rec_server()
+    rec_conn = connect_to_servers()
 
     while True:
+
         print(f"ex data recieved: {len(ex_data)}, holo data recieved:{len(holo_data)}")
         if (len(ex_data) > 0 and len(holo_data)>0):
             is_enough_data, (ex_index, holo_index) = calc_data_enough(enough_thresh=enough_thresh)
             if is_enough_data:
                 samples = find_samples(ex_index, holo_index, enough_thresh=enough_thresh)
-                # print(samples)
                 rot, rot_err, inliers, deltas = Calibrator.calibrate_rotation(samples, apply_ransac=True, vis=False)
-                rotated_samples = Calibrator.rotate_samples(samples, rot)
-                trans, trans_err, tras_std = Calibrator.calibrate_translation(rotated_samples)
+                trans, trans_err, tras_std = Calibrator.calibrate_translation(samples, rot)
                 F = Calibrator.make_homogeneous(rot.T)
-                F[:3,3] = trans
+                F[:3, 3] = trans
                 T = Calibrator.find_T(samples, F)
                 FT_trnsforms = encode_transform(F) + '|' + encode_transform(T)
                 print("result sent")
                 rec_conn.send(FT_trnsforms.encode())
-
-                ex_data = ex_data[len(ex_data)-10:]
-                holo_data = holo_data[len(holo_data)-10:]
-
+                ex_data = ex_data[len(ex_data) - Config.retain_data:]
+                holo_data = holo_data[len(holo_data) - Config.retain_data:]
                 is_enough_data = False
         time.sleep(1.0)
 
