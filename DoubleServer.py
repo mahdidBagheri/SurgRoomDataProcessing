@@ -65,18 +65,18 @@ def start_holoserver(ip, port, name):
     while True:
         try:
             response = conn.recv(4096).decode()
+            if response == '':
+                raise ConnectionResetError
             holo_timestamp, holoSample = decode_response(response.split(','))
             new_data = {"timestamp":holo_timestamp, "mat":holoSample}
             # print(f"{name} data recieved {response}")
-
             holo_data.append(new_data)
-
-
         except ConnectionResetError:
             print('Connection reset by peer')
+            server_socket.close()
             conn, server_socket = connect(ip=ip, port=port, name=name)
-        except:
-            print(f"{name} Error: respose {response}")
+        except Exception as e:
+            print(f"{name} Error: respose {response}, e:{e}")
             time.sleep(0.5)
 
 def start_exserver(ip, port, name):
@@ -85,15 +85,18 @@ def start_exserver(ip, port, name):
     while True:
         try:
             response = conn.recv(4096).decode()
+            if response == '':
+                raise ConnectionResetError
             holo_timestamp, holoSample = decode_response(response.split(','))
             new_data = {"timestamp":holo_timestamp, "mat":holoSample}
             # print(f"{name} data recieved {response}")
             ex_data.append(new_data)
         except ConnectionResetError:
             print('Connection reset by peer')
+            server_socket.close()
             conn, server_socket = connect(ip=ip, port=port, name=name)
-        except:
-            print(f"{name} Error: respose {response}")
+        except Exception as e:
+            print(f"{name} Error: respose {response}, {e}")
             time.sleep(0.5)
 def start_rec_server(ip='127.0.0.1', port=65430):
     rec_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -102,7 +105,7 @@ def start_rec_server(ip='127.0.0.1', port=65430):
     print(f"rec Server listening on {ip}:{port}")
     rec_conn, addr = rec_socket.accept()
     print(f"ex Connected by {addr}")
-    return rec_conn
+    return rec_conn, rec_socket
 
 def calc_data_enough(enough_thresh = 100):
     if ex_data[0]['timestamp'] > holo_data[0]['timestamp']:
@@ -207,16 +210,25 @@ def find_samples(ex_index, holo_index, enough_thresh):
 def connect_to_servers():
     threading.Thread(target=start_holoserver, args=("127.0.0.1", 65432, "holo")).start()
     threading.Thread(target=start_exserver, args=("127.0.0.1", 65431, "extern")).start()
-    rec_conn = start_rec_server()
-    return rec_conn
+
+def SendResponse(message):
+    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        client_socket.connect(("127.0.0.1", 65430))
+        client_socket.sendall(message.encode())
+        response = client_socket.recv(1024).decode()
+        print(f"Server response: {response}")
+    except socket.error as e:
+        print(f"Error: {e}")
+    finally:
+        client_socket.close()
 
 if __name__ == "__main__":
     enough_thresh = Config.Enough_samples
-    rec_conn = connect_to_servers()
+    connect_to_servers()
     last_rot_error = 1000000
     last_trans_error = 1000000
     while True:
-
         print(f"ex data recieved: {len(ex_data)}, holo data recieved:{len(holo_data)}")
         if (len(ex_data) > 0 and len(holo_data)>0):
             is_enough_data, (ex_index, holo_index) = calc_data_enough(enough_thresh=enough_thresh)
@@ -234,7 +246,7 @@ if __name__ == "__main__":
                     T = Calibrator.find_T(samples, F)
                     FT_trnsforms = encode_transform(F) + '|' + encode_transform(T)
                     print("result sent")
-                    rec_conn.send(FT_trnsforms.encode())
+                    SendResponse(FT_trnsforms)
                 ex_data = ex_data[len(ex_data) - Config.retain_data:]
                 holo_data = holo_data[len(holo_data) - Config.retain_data:]
                 is_enough_data = False
