@@ -8,13 +8,13 @@ using UnityEditor.PackageManager;
 using System.IO;
 using static UnityEditor.PlayerSettings;
 using System.Net;
-using System.Diagnostics;
+using System.Runtime.InteropServices.ComTypes;
 
 public class Calibrator : MonoBehaviour
 {
     public GameObject Hololens;
     public GameObject HoloTracker;
-    //public GameObject ExternalTracker;
+    public GameObject ExternalTracker;
     public GameObject Tracker;
     public GameObject HoloCube;
     public GameObject ExternalCube;
@@ -23,10 +23,11 @@ public class Calibrator : MonoBehaviour
     public bool isRecording = false;
     private TcpClient holoClient;
     private NetworkStream holoStream;
+    //private TcpListener recListener;
 
-    private TcpClient recClient;
+
     private TcpClient exrecClient;
-    private NetworkStream recStream;
+
     private NetworkStream exrecStream;
     private string serverIP = "127.0.0.1";
     private int holoPort = 65432;
@@ -51,27 +52,24 @@ public class Calibrator : MonoBehaviour
     Quaternion Holo_rotation;
 
 
-    Matrix4x4 HoloCubeReltiveToHololes = Matrix4x4.identity;
+    Matrix4x4 HoloCubeReltiveToHololes;
     private string currentTime = "0";
 
     Matrix4x4 TrckerFromExternalTrackerVeiw = Matrix4x4.identity;
     Matrix4x4 EndoscopeFromExternalTrackerVeiw = Matrix4x4.identity;
-    DateTime utcNow;
+
     void Start()
     {
-        
+
         //Matrix4x4 HoloTrckerFromExternalTrackerVeiw = this.GetRelativeMatrix(ExternalTracker.transform, HoloTracker.transform);
         //Debug.Log($"F:\n{HoloTrckerFromExternalTrackerVeiw}");
-        //HoloCubeReltiveToHololes = this.GetRelativeMatrix(HoloCube.transform, Hololens.transform);
-        HoloCubeReltiveToHololes = Matrix4x4.identity;
-        HoloCubeReltiveToHololes[0,3] = 0.0f;
-        HoloCubeReltiveToHololes[1,3] = 0.0f;
-        HoloCubeReltiveToHololes[2,3] = 0.5f;
+        HoloCubeReltiveToHololes = this.GetRelativeMatrix(HoloCube.transform, Hololens.transform);
+        
         ExternalCube.transform.localPosition = new Vector3(HoloCubeReltiveToHololes[0, 3], HoloCubeReltiveToHololes[1, 3], HoloCubeReltiveToHololes[2, 3]);
         ExternalCube.transform.localRotation = HoloCubeReltiveToHololes.rotation;
 
         ConnectToHoloServer();
-        ConnectToRecServer();
+        //ConnectToRecServer();
         
         StartSendThread();
     }
@@ -86,37 +84,33 @@ public class Calibrator : MonoBehaviour
         recThread = new Thread(ReceiveMatrices);
         recThread.Start();
 
-        ConnectToExRecServer();
-        exrecThread = new Thread(ReceiveExMatrice);
-        exrecThread.Start();
-        isConnectedToExHolo = true;
 
     }
 
     private void OnApplicationQuit()
     {
         holoStream.Close();
-        recStream.Close();
+        //recStream.Close();
         exrecStream.Close();
     }
 
     void Update()
     {
-        utcNow = DateTime.UtcNow;
-        currentTime = $"{(long)(utcNow - new DateTime(1970, 1, 1)).TotalMilliseconds}";
-        UnityEngine.Debug.Log($"{currentTime}");
         if (Time.time > 1.0 && !isConnectedToExHolo)
         {
-
+            ConnectToExRecServer();
+            exrecThread = new Thread(ReceiveExMatrice);
+            exrecThread.Start();
+            isConnectedToExHolo = true;
         }
         //TrckerFromExternalTrackerVeiw = this.GetRelativeMatrix(Tracker.transform, ExternalTracker.transform);
 
+        currentTime = Time.time.ToString();
         //Debug.Log(currentTime);
         //Matrix4x4 P_ = this.GetRelativeMatrix(Tracker.transform, Hololens.transform);
         //Matrix4x4 F_ = this.GetRelativeMatrix(HoloTracker.transform, ExternalTracker.transform);
 
-        //Matrix4x4 hololensFromHololoTrackerVeiw = this.GetRelativeMatrix(Hololens.transform, HoloTracker.transform);
-        Matrix4x4 hololensFromHololoTrackerVeiw = Hololens.transform.localToWorldMatrix;
+        Matrix4x4 hololensFromHololoTrackerVeiw = this.GetRelativeMatrix(Hololens.transform, HoloTracker.transform);
         Holo_position = new Vector3(hololensFromHololoTrackerVeiw[0, 3], hololensFromHololoTrackerVeiw[1, 3], hololensFromHololoTrackerVeiw[2, 3]);
         Holo_rotation = hololensFromHololoTrackerVeiw.rotation;
 
@@ -150,7 +144,7 @@ public class Calibrator : MonoBehaviour
     public void OnStart()
     {
         isRecording = true;
-        UnityEngine.Debug.Log("Started recording data.");
+        Debug.Log("Started recording data.");
     }
 
 
@@ -160,27 +154,27 @@ public class Calibrator : MonoBehaviour
         {
             holoClient = new TcpClient(serverIP, holoPort);
             holoStream = holoClient.GetStream();
-            UnityEngine.Debug.Log("Connected to server");
+            Debug.Log("Connected to server");
         }
         catch (SocketException e)
         {
-            UnityEngine.Debug.LogError($"SocketException: {e}");
+            Debug.LogError($"SocketException: {e}");
         }
     }
 
-    void ConnectToRecServer()
-    {
-        try
-        {
-            recClient = new TcpClient(serverIP, recPort);
-            recStream = recClient.GetStream();
-            UnityEngine.Debug.Log("Connected to server");
-        }
-        catch (SocketException e)
-        {
-            UnityEngine.Debug.LogError($"SocketException: {e}");
-        }
-    }
+    //void ConnectToRecServer()
+    //{
+    //    try
+    //    {
+    //        recClient = new TcpClient(serverIP, recPort);
+    //        recStream = recClient.GetStream();
+    //        Debug.Log("Connected to server");
+    //    }
+    //    catch (SocketException e)
+    //    {
+    //        Debug.LogError($"SocketException: {e}");
+    //    }
+    //}
 
     void ConnectToExRecServer()
     {
@@ -188,11 +182,11 @@ public class Calibrator : MonoBehaviour
         {
             exrecClient = new TcpClient(serverIP, exrecPort);
             exrecStream = exrecClient.GetStream();
-            UnityEngine.Debug.Log("Connected to server");
+            Debug.Log("Connected to server");
         }
         catch (SocketException e)
         {
-            UnityEngine.Debug.LogError($"SocketException: {e}");
+            Debug.LogError($"SocketException: {e}");
         }
     }
 
@@ -208,6 +202,29 @@ public class Calibrator : MonoBehaviour
             //Thread.Sleep(Mathf.Clamp(5 * 5 + 250, 200, 300));
             Thread.Sleep(50);
 
+        }
+    }
+    string RecieveMatricesFromClient()
+    {
+        try
+        {
+
+            TcpListener recListener = new TcpListener(IPAddress.Any, recPort);
+            recListener.Start();
+            TcpClient recClient = recListener.AcceptTcpClient();
+            NetworkStream recStream = recClient.GetStream();
+            Debug.Log("Connected to exholo server");
+            byte[] buffer = new byte[1024];
+            int bytesRead = recStream.Read(buffer, 0, buffer.Length);
+            string receivedMessage = Encoding.ASCII.GetString(buffer, 0, bytesRead);
+            Debug.Log("Received message: " + receivedMessage);
+            recClient.Close();
+            return receivedMessage;
+        }
+        catch (SocketException e)
+        {
+            Debug.LogError($"SocketException: {e}");
+            return "";
         }
     }
 
@@ -226,7 +243,7 @@ public class Calibrator : MonoBehaviour
             }
             else
             {
-                UnityEngine.Debug.LogError("Invalid data received");
+                Debug.LogError("Invalid data received");
             }
 
         }
@@ -235,26 +252,32 @@ public class Calibrator : MonoBehaviour
 
     void ReceiveMatrices()
     {
-        while (recClient != null && recStream != null && recClient.Connected)
+        while (true)
         {
-            byte[] data = new byte[2048]; // Buffer size may vary
-            int bytesRead = recStream.Read(data, 0, data.Length);
-            string receivedData = Encoding.ASCII.GetString(data, 0, bytesRead);
-
-            string[] matricesData = receivedData.Split('|'); // Assuming matrices are separated by '|'
-
-            if (matricesData.Length == 2)
+            try
             {
-                F = ParseMatrix(matricesData[0]);
-                P = ParseMatrix(matricesData[1]);
+                string receivedData = RecieveMatricesFromClient();
 
-                UnityEngine.Debug.Log("F:\n" + F);
-                UnityEngine.Debug.Log("P:\n" + P);
-                isTransformationRecieved= true;
-            }
-            else
+                string[] matricesData = receivedData.Split('|'); // Assuming matrices are separated by '|'
+
+                if (matricesData.Length == 2)
+                {
+                    F = ParseMatrix(matricesData[0]);
+                    P = ParseMatrix(matricesData[1]);
+
+                    Debug.Log("F:\n" + F);
+                    Debug.Log("P:\n" + P);
+                    isTransformationRecieved= true;
+                }
+                else
+                {
+                    Debug.LogError("Invalid data received");
+                }
+            } catch
             {
-                UnityEngine.Debug.LogError("Invalid data received");
+                Debug.LogError("connection error");
+                Thread.Sleep(50);
+                
             }
         }
     }
@@ -264,7 +287,7 @@ public class Calibrator : MonoBehaviour
         string[] values = data.Split(',');
         if (values.Length != 16)
         {
-            UnityEngine.Debug.LogError("Invalid matrix data");
+            Debug.LogError("Invalid matrix data");
             return Matrix4x4.identity;
         }
         Matrix4x4 matrix = new Matrix4x4();
