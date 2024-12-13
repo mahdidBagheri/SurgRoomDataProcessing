@@ -1,4 +1,7 @@
 import socket
+
+import matplotlib.pyplot as plt
+
 from Config import Config
 import threading
 import time
@@ -234,23 +237,30 @@ def find_samples(ex_index, holo_index, enough_thresh, dt=0):
 
 def find_samples_delaytuned(ex_index, holo_index, enough_thresh):
     deltas = []
-    for dt in range(Config.holodelay[0],Config.holodelay[1],Config.holodelay[2]):
+    dts = range(Config.holodelay[0],Config.holodelay[1],Config.holodelay[2])
+    for dt in dts:
         samples = find_samples(ex_index, holo_index, enough_thresh, dt)
         if(len(samples) == 0):
             continue
         delta = 0
-        for i in range(len(samples),50):
+        for i in range(0,len(samples),int(len(samples)/50)):
             j = len(samples) - i - 1
-            airef = Utils.angle_from_rotation_matrix(samples[i]["ref"])
-            ajref = Utils.angle_from_rotation_matrix(samples[j]["ref"])
-            aitar = Utils.angle_from_rotation_matrix(samples[i]["target"])
-            ajtar = Utils.angle_from_rotation_matrix(samples[j]["target"])
+            qiref = Utils.matrix_to_quaternion(samples[i]["ref"][:3,:3])
+            qjref = Utils.matrix_to_quaternion(samples[j]["ref"][:3,:3])
+            qitar = Utils.matrix_to_quaternion(samples[i]["target"][:3,:3])
+            qjtar = Utils.matrix_to_quaternion(samples[j]["target"][:3,:3])
 
-            delta += abs((ajref - airef) - (ajtar - aitar))
+            aref = Utils.quaternion_rotation_angle_between(qiref,qjref)
+            atar = Utils.quaternion_rotation_angle_between(qitar,qjtar)
+
+            delta += abs((aref - atar))
         deltas.append(delta)
+
     argmin_delta = np.argmin(deltas)
-    delay = Config.holodelay[0] + argmin_delta * Config.holodelay[1]
-    samples = find_samples(ex_index, holo_index, enough_thresh, delay)
+    # plt.plot(deltas)
+    # plt.show()
+    print(f"calculated delay: {dts[argmin_delta]}")
+    samples = find_samples(ex_index, holo_index, enough_thresh, dts[argmin_delta])
     return samples
 
 
@@ -279,7 +289,8 @@ if __name__ == "__main__":
             if (len(ex_data) > 0 and len(holo_data)>0):
                 is_enough_data, (ex_index, holo_index) = calc_data_enough(enough_thresh=enough_thresh)
                 if is_enough_data:
-                    samples = find_samples(ex_index, holo_index, enough_thresh=enough_thresh, dt=0)
+                    # samples = find_samples_(ex_index, holo_index, enough_thresh=enough_thresh, dt=0)
+                    samples = find_samples_delaytuned(ex_index, holo_index, enough_thresh=enough_thresh)
                     rot, rot_err, inliers, deltas = Calibrator.calibrate_rotation(samples, apply_ransac=True, vis=False)
                     trans, trans_err, tras_std = Calibrator.calibrate_translation(samples, rot)
                     print(f"last rot:{last_rot_error}, rot_err:{rot_err}, last trans:{last_trans_error}, trans_err:{trans_err}")

@@ -8,6 +8,10 @@ from mpl_toolkits.mplot3d.axes3d import Axes3D
 import numpy as np
 from matplotlib.patches import FancyArrowPatch
 
+def matrix_to_quaternion(matrix):
+    r = R.from_matrix(matrix)
+    quaternion = r.as_quat()
+    return quaternion
 
 class Arrow3D(FancyArrowPatch):
 
