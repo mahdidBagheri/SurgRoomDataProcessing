@@ -289,6 +289,7 @@ if __name__ == "__main__":
             if (len(ex_data) > 0 and len(holo_data)>0):
                 is_enough_data, (ex_index, holo_index) = calc_data_enough(enough_thresh=enough_thresh)
                 if is_enough_data:
+                    print("calibrating ...")
                     # samples = find_samples_(ex_index, holo_index, enough_thresh=enough_thresh, dt=0)
                     samples = find_samples_delaytuned(ex_index, holo_index, enough_thresh=enough_thresh)
                     rot, rot_err, inliers, deltas = Calibrator.calibrate_rotation(samples, apply_ransac=True, vis=False)

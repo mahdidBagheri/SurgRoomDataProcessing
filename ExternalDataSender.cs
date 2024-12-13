@@ -97,37 +97,45 @@ public class ExternalDataSender : MonoBehaviour
 
     void SendExData()
     {
-        try
+        while(isApplicationRunning)
         {
-            if(exClient == null)
+            try
             {
-                exClient = new TcpClient(serverIP, exPort);
-                exStream = exClient.GetStream();
-                UnityEngine.Debug.Log($"connected to exClient");
-            }
-            while (exClient != null && exStream != null && exClient.Connected)
-            {
-                string dataToSend = $"{currentTime},{this.Ex_position.x},{this.Ex_position.y},{this.Ex_position.z},{this.Ex_rotation.x},{this.Ex_rotation.y},{this.Ex_rotation.z},{this.Ex_rotation.w}@";
-                byte[] data = Encoding.ASCII.GetBytes(dataToSend);
-                exStream.Write(data, 0, data.Length);
-
-
-                using (StreamWriter writer = new StreamWriter(filePath, true)) // 'true' enables append mode
+                if(exClient == null || !exClient.Connected)
                 {
-
-                    // Write the data row
-                    writer.WriteLine(string.Join(",", dataToSend));
+                    if(exClient != null)
+                        {
+                            exClient.Close();
+                        }
+                    exClient = new TcpClient(serverIP, exPort);
+                    exStream = exClient.GetStream();
+                    UnityEngine.Debug.Log($"connected to exClient");
                 }
+                while (exClient != null && exStream != null && exClient.Connected)
+                {
+                    string dataToSend = $"{currentTime},{this.Ex_position.x},{this.Ex_position.y},{this.Ex_position.z},{this.Ex_rotation.x},{this.Ex_rotation.y},{this.Ex_rotation.z},{this.Ex_rotation.w}@";
+                    byte[] data = Encoding.ASCII.GetBytes(dataToSend);
+                    exStream.Write(data, 0, data.Length);
 
-                Console.WriteLine($"Data appended to {filePath}");
-                UnityEngine.Debug.Log($"Ex Sent data: {dataToSend}");
-                //Thread.Sleep(Mathf.Clamp(5 * 5 + 250, 200, 300));
-                Thread.Sleep(10);
+
+                    using (StreamWriter writer = new StreamWriter(filePath, true)) // 'true' enables append mode
+                    {
+
+                        // Write the data row
+                        writer.WriteLine(string.Join(",", dataToSend));
+                    }
+
+                    Console.WriteLine($"Data appended to {filePath}");
+                    UnityEngine.Debug.Log($"Ex Sent data: {dataToSend}");
+                    //Thread.Sleep(Mathf.Clamp(5 * 5 + 250, 200, 300));
+                    Thread.Sleep(10);
+                }
             }
-        }
-        catch (Exception e)
-        {
-            UnityEngine.Debug.Log(e);
+            catch (Exception e)
+            {
+                UnityEngine.Debug.Log(e);
+            }
+            Thread.Sleep(100);
         }
 
     }
@@ -157,7 +165,7 @@ public class ExternalDataSender : MonoBehaviour
                                         $"{e.m00},{e.m01},{e.m02},{e.m03},{e.m10},{e.m11},{e.m12},{e.m13},{e.m20},{e.m21},{e.m22},{e.m23},{e.m30},{e.m31},{e.m32},{e.m33}";
                     byte[] data = Encoding.ASCII.GetBytes(dataToSend);
                     exStreamToHolo.Write(data, 0, data.Length);
-                    UnityEngine.Debug.Log($"ExHolo Sent data: {dataToSend}");
+                    //UnityEngine.Debug.Log($"ExHolo Sent data: {dataToSend}");
                     exStreamToHolo.Flush();
                     //Thread.Sleep(Mathf.Clamp(5 * 5 + 250, 200, 300));
                     Thread.Sleep(10);

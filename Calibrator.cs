@@ -210,8 +210,12 @@ public class Calibrator : MonoBehaviour
         {                    
 
             try {
-                if (holoClient == null)
+                if (holoClient == null || !holoClient.Connected)
                 {
+                    if(holoClient != null)
+                    {
+                        holoClient.Close();
+                    }
                     holoClient = new TcpClient(serverIP, holoPort);
                     holoStream = holoClient.GetStream();
                 }
