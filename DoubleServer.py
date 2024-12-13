@@ -61,36 +61,61 @@ def connect(ip, port, name):
 
 def start_holoserver(ip, port, name):
     conn, server_socket = connect(ip=ip, port=port, name=name)
+    new_response = ""
+    remained_response = ""
     response = ""
     while True:
         try:
-            response = conn.recv(4096).decode()
-            if response == '':
+
+            recieved_response = conn.recv(2048).decode()
+            recieved_response = remained_response + recieved_response
+            if recieved_response == '':
                 raise ConnectionResetError
-            holo_timestamp, holoSample = decode_response(response.split(','))
-            new_data = {"timestamp":holo_timestamp, "mat":holoSample}
-            # print(f"{name} data recieved {response}")
-            holo_data.append(new_data)
+
+            splitted_responses = recieved_response.split('@')
+            if len(splitted_responses[-1].split(",")) < 8:
+                remained_response = splitted_responses[-1]
+                splitted_responses = splitted_responses[:-1]
+            for fragment in splitted_responses:
+                if fragment == "":
+                    continue
+                frag_list = fragment.split(',')
+                holo_timestamp, holoSample = decode_response(frag_list)
+                new_data = {"timestamp": holo_timestamp, "mat": holoSample}
+                holo_data.append(new_data)
+
         except ConnectionResetError:
             print('Connection reset by peer')
             server_socket.close()
             conn, server_socket = connect(ip=ip, port=port, name=name)
         except Exception as e:
-            print(f"{name} Error: respose {response}, e:{e}")
+            print(f"{name} Error: respose {remained_response}, e:{e}")
             time.sleep(0.5)
 
 def start_exserver(ip, port, name):
     conn, server_socket = connect(ip=ip, port=port, name=name)
+    remained_response = ""
     response = ""
     while True:
         try:
             response = conn.recv(4096).decode()
             if response == '':
                 raise ConnectionResetError
-            holo_timestamp, holoSample = decode_response(response.split(','))
-            new_data = {"timestamp":holo_timestamp, "mat":holoSample}
-            # print(f"{name} data recieved {response}")
-            ex_data.append(new_data)
+            recieved_response = conn.recv(2048).decode()
+            recieved_response = remained_response + recieved_response
+            if recieved_response == '':
+                raise ConnectionResetError
+            splitted_responses = recieved_response.split('@')
+            if len(splitted_responses[-1].split(",")) < 8:
+                remained_response = splitted_responses[-1]
+                splitted_responses = splitted_responses[:-1]
+            for fragment in splitted_responses:
+                if fragment == "":
+                    continue
+                frag_list = fragment.split(',')
+                ex_timestamp, exSample = decode_response(frag_list)
+                new_data = {"timestamp": ex_timestamp, "mat": exSample}
+                ex_data.append(new_data)
         except ConnectionResetError:
             print('Connection reset by peer')
             server_socket.close()
@@ -179,7 +204,7 @@ def weighted_transform(transform1, transform2, t):
 
     return interpolated_transform
 
-def find_samples(ex_index, holo_index, enough_thresh):
+def find_samples(ex_index, holo_index, enough_thresh, dt=0):
     samples = []
     selected_ex = ex_data[ex_index:ex_index+enough_thresh]
     selected_holo = pd.DataFrame.from_records(holo_data[holo_index:holo_index+enough_thresh])
@@ -188,14 +213,14 @@ def find_samples(ex_index, holo_index, enough_thresh):
     for r, holo_s in selected_holo.iterrows():
         if r == 0:
             continue
-        t_holo = holo_s["timestamp"]
+        t_holo = holo_s["timestamp"] - dt
         m_holo = holo_s["mat"]
         if np.all(m_holo[:3,:3] == np.eye(3)): continue
         i_after = find_between_timestamps(t_holo, selected_ex_df)
         i_after = min(i_after, len(selected_ex_df)-1)
         i_before = i_after - 1
         if i_before < 0: continue
-        print(f"{i_after},{r}")
+        # print(f"{i_after},{r}")
 
         t_before = selected_ex_df.loc[i_before,"timestamp"]
         if i_after < selected_ex_df.shape[0] - 2:
@@ -207,6 +232,28 @@ def find_samples(ex_index, holo_index, enough_thresh):
             samples.append({"ref":m_holo,"target":interpolated_mat})
     return samples
 
+def find_samples_delaytuned(ex_index, holo_index, enough_thresh):
+    deltas = []
+    for dt in range(Config.holodelay[0],Config.holodelay[1],Config.holodelay[2]):
+        samples = find_samples(ex_index, holo_index, enough_thresh, dt)
+        if(len(samples) == 0):
+            continue
+        delta = 0
+        for i in range(len(samples),50):
+            j = len(samples) - i - 1
+            airef = Utils.angle_from_rotation_matrix(samples[i]["ref"])
+            ajref = Utils.angle_from_rotation_matrix(samples[j]["ref"])
+            aitar = Utils.angle_from_rotation_matrix(samples[i]["target"])
+            ajtar = Utils.angle_from_rotation_matrix(samples[j]["target"])
+
+            delta += abs((ajref - airef) - (ajtar - aitar))
+        deltas.append(delta)
+    argmin_delta = np.argmin(deltas)
+    delay = Config.holodelay[0] + argmin_delta * Config.holodelay[1]
+    samples = find_samples(ex_index, holo_index, enough_thresh, delay)
+    return samples
+
+
 def connect_to_servers():
     threading.Thread(target=start_holoserver, args=("127.0.0.1", 65432, "holo")).start()
     threading.Thread(target=start_exserver, args=("127.0.0.1", 65431, "extern")).start()
@@ -216,8 +263,6 @@ def SendResponse(message):
     try:
         client_socket.connect(("127.0.0.1", 65430))
         client_socket.sendall(message.encode())
-        response = client_socket.recv(1024).decode()
-        print(f"Server response: {response}")
     except socket.error as e:
         print(f"Error: {e}")
     finally:
@@ -229,26 +274,32 @@ if __name__ == "__main__":
     last_rot_error = 1000000
     last_trans_error = 1000000
     while True:
-        print(f"ex data recieved: {len(ex_data)}, holo data recieved:{len(holo_data)}")
-        if (len(ex_data) > 0 and len(holo_data)>0):
-            is_enough_data, (ex_index, holo_index) = calc_data_enough(enough_thresh=enough_thresh)
-            if is_enough_data:
-                samples = find_samples(ex_index, holo_index, enough_thresh=enough_thresh)
-                rot, rot_err, inliers, deltas = Calibrator.calibrate_rotation(samples, apply_ransac=True, vis=False)
-                trans, trans_err, tras_std = Calibrator.calibrate_translation(samples, rot)
-                print(f"last rot:{last_rot_error}, rot_err:{rot_err}, last trans:{last_trans_error}, trans_err:{trans_err}")
+        try:
+            print(f"ex data recieved: {len(ex_data)}, holo data recieved:{len(holo_data)}")
+            if (len(ex_data) > 0 and len(holo_data)>0):
+                is_enough_data, (ex_index, holo_index) = calc_data_enough(enough_thresh=enough_thresh)
+                if is_enough_data:
+                    samples = find_samples(ex_index, holo_index, enough_thresh=enough_thresh, dt=0)
+                    rot, rot_err, inliers, deltas = Calibrator.calibrate_rotation(samples, apply_ransac=True, vis=False)
+                    trans, trans_err, tras_std = Calibrator.calibrate_translation(samples, rot)
+                    print(f"last rot:{last_rot_error}, rot_err:{rot_err}, last trans:{last_trans_error}, trans_err:{trans_err}")
 
-                if (last_rot_error > rot_err and last_trans_error > trans_err):
-                    last_rot_error = rot_err
-                    last_trans_error = trans_err
-                    F = Calibrator.make_homogeneous(rot.T)
-                    F[:3, 3] = trans
-                    T = Calibrator.find_T(samples, F)
-                    FT_trnsforms = encode_transform(F) + '|' + encode_transform(T)
-                    print("result sent")
-                    SendResponse(FT_trnsforms)
-                ex_data = ex_data[len(ex_data) - Config.retain_data:]
-                holo_data = holo_data[len(holo_data) - Config.retain_data:]
-                is_enough_data = False
+                    # if (last_rot_error > rot_err and last_trans_error > trans_err):
+                    if (True):
+                        last_rot_error = rot_err
+                        last_trans_error = trans_err
+                        F = Calibrator.make_homogeneous(rot.T)
+                        F[:3, 3] = trans
+                        T = Calibrator.find_T(samples, F)
+                        FT_trnsforms = encode_transform(F) + '|' + encode_transform(T)
+                        print("result sent")
+                        SendResponse(FT_trnsforms)
+                    ex_data = ex_data[len(ex_data) - Config.retain_data:]
+                    holo_data = holo_data[len(holo_data) - Config.retain_data:]
+                    is_enough_data = False
+        except Exception as e:
+            print(f"{e}")
+            ex_data = ex_data[len(ex_data) - Config.retain_data:]
+            holo_data = holo_data[len(holo_data) - Config.retain_data:]
         time.sleep(1.0)
 

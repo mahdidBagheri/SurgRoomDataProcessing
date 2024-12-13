@@ -6,7 +6,18 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using UnityEngine;
-
+using System.Diagnostics;
+using UnityEngine;
+using System;
+using System.Collections.Generic;
+using System.Net.Sockets;
+using System.Text;
+using System.Threading;
+using UnityEditor.PackageManager;
+using System.IO;
+using static UnityEditor.PlayerSettings;
+using System.Net;
+using System.Diagnostics;
 public class ExternalDataSender : MonoBehaviour
 {
     public GameObject Endoscope;
@@ -33,19 +44,27 @@ public class ExternalDataSender : MonoBehaviour
     private string currentTime = "0";
     Matrix4x4 TrckerFromExternalTrackerVeiw;
     Matrix4x4 EndoscopeFromExternalTrackerVeiw;
+    DateTime utcNow;
+    String filePath="D:\\Desktop\\ExTracker.csv";
+    bool fileExists;
+    private bool isApplicationRunning = true;
+
     // Start is called before the first frame update
     void Start()
     {
-        ConnectToExServer();
+        
         StartSendThread();
+        fileExists = File.Exists(filePath);
+
     }
 
     // Update is called once per frame
     void Update()
     {
-
-
-        currentTime = Time.time.ToString();
+        utcNow = DateTime.UtcNow;
+        currentTime = $"{(long)(utcNow - new DateTime(1970, 1, 1)).TotalMilliseconds}";
+        //UnityEngine.Debug.Log($"{currentTime}");
+        
         TrckerFromExternalTrackerVeiw = this.GetRelativeMatrix(Tracker.transform, ExternalTracker.transform);
         EndoscopeFromExternalTrackerVeiw = this.GetRelativeMatrix(Endoscope.transform, ExternalTracker.transform);
 
@@ -58,8 +77,14 @@ public class ExternalDataSender : MonoBehaviour
 
     private void OnApplicationQuit()
     {
+        isApplicationRunning = false;
+        if (exClientToHoloListener != null)
+        {
+            exClientToHoloListener.Stop();
+            exClientToHolo.Close();
+        }
+        exClient.Close();
         exStream.Close();
-        exStreamToHolo.Close();
     }
 
     Matrix4x4 GetRelativeMatrix(Transform target, Transform reference)
@@ -72,65 +97,80 @@ public class ExternalDataSender : MonoBehaviour
 
     void SendExData()
     {
-        while (exClient != null && exStream != null && exClient.Connected)
-        {
-            string dataToSend = $"{currentTime},{this.Ex_position.x},{this.Ex_position.y},{this.Ex_position.z},{this.Ex_rotation.x},{this.Ex_rotation.y},{this.Ex_rotation.z},{this.Ex_rotation.w}";
-            byte[] data = Encoding.ASCII.GetBytes(dataToSend);
-            exStream.Write(data, 0, data.Length);
-            //Debug.Log($"Ex Sent data: {dataToSend}");
-            //Thread.Sleep(Mathf.Clamp(5 * 5 + 250, 200, 300));
-            Thread.Sleep(50);
-        }
-    }
-
-    void ConnectToExServer()
-    {
         try
         {
-            exClient = new TcpClient(serverIP, exPort);
-            exStream = exClient.GetStream();
-            Debug.Log("Connected to server");
+            if(exClient == null)
+            {
+                exClient = new TcpClient(serverIP, exPort);
+                exStream = exClient.GetStream();
+                UnityEngine.Debug.Log($"connected to exClient");
+            }
+            while (exClient != null && exStream != null && exClient.Connected)
+            {
+                string dataToSend = $"{currentTime},{this.Ex_position.x},{this.Ex_position.y},{this.Ex_position.z},{this.Ex_rotation.x},{this.Ex_rotation.y},{this.Ex_rotation.z},{this.Ex_rotation.w}@";
+                byte[] data = Encoding.ASCII.GetBytes(dataToSend);
+                exStream.Write(data, 0, data.Length);
+
+
+                using (StreamWriter writer = new StreamWriter(filePath, true)) // 'true' enables append mode
+                {
+
+                    // Write the data row
+                    writer.WriteLine(string.Join(",", dataToSend));
+                }
+
+                Console.WriteLine($"Data appended to {filePath}");
+                UnityEngine.Debug.Log($"Ex Sent data: {dataToSend}");
+                //Thread.Sleep(Mathf.Clamp(5 * 5 + 250, 200, 300));
+                Thread.Sleep(10);
+            }
         }
-        catch (SocketException e)
+        catch (Exception e)
         {
-            Debug.LogError($"SocketException: {e}");
+            UnityEngine.Debug.Log(e);
         }
+
     }
 
-    void CreateExHoloServer()
-    {
-        try
-        {
-            exClientToHoloListener = new TcpListener(IPAddress.Any, exHoloPort);
-            exClientToHoloListener.Start();
-            exClientToHolo = exClientToHoloListener.AcceptTcpClient();
-            exStreamToHolo = exClientToHolo.GetStream();
-            Debug.Log("Connected to exholo server");
-        }
-        catch (SocketException e)
-        {
-            Debug.LogError($"SocketException: {e}");
-        }
-    }
 
     void SendExDataToHolo()
-    {
-
-        CreateExHoloServer();
-        while (exClientToHolo != null && exStreamToHolo != null && exClientToHolo.Connected)
+    {            
+        while (isApplicationRunning)
         {
+            try
+            {
+                if (exClientToHoloListener == null)
+                {
+                    exClientToHoloListener = new TcpListener(IPAddress.Any, exHoloPort);
+                    exClientToHoloListener.Start();
+                    UnityEngine.Debug.Log($"created exholo server");
+                    
 
-            Matrix4x4 t = TrckerFromExternalTrackerVeiw;
-            Matrix4x4 e = EndoscopeFromExternalTrackerVeiw;
-            Debug.Log(e);
-            string dataToSend = $"{t.m00},{t.m01},{t.m02},{t.m03},{t.m10},{t.m11},{t.m12},{t.m13},{t.m20},{t.m21},{t.m22},{t.m23},{t.m30},{t.m31},{t.m32},{t.m33}|" +
-                                $"{e.m00},{e.m01},{e.m02},{e.m03},{e.m10},{e.m11},{e.m12},{e.m13},{e.m20},{e.m21},{e.m22},{e.m23},{e.m30},{e.m31},{e.m32},{e.m33}";
-            byte[] data = Encoding.ASCII.GetBytes(dataToSend);
-            exStreamToHolo.Write(data, 0, data.Length);
-            //Debug.Log($"Ex Sent data: {dataToSend}");
-            //Thread.Sleep(Mathf.Clamp(5 * 5 + 250, 200, 300));
-            Thread.Sleep(10);
+                }
+                exClientToHolo = exClientToHoloListener.AcceptTcpClient();
+                exStreamToHolo = exClientToHolo.GetStream();
+                while(exClientToHolo != null && exClientToHolo.Connected)
+                {
+                    Matrix4x4 t = TrckerFromExternalTrackerVeiw;
+                    Matrix4x4 e = EndoscopeFromExternalTrackerVeiw;
+                    string dataToSend = $"{t.m00},{t.m01},{t.m02},{t.m03},{t.m10},{t.m11},{t.m12},{t.m13},{t.m20},{t.m21},{t.m22},{t.m23},{t.m30},{t.m31},{t.m32},{t.m33}|" +
+                                        $"{e.m00},{e.m01},{e.m02},{e.m03},{e.m10},{e.m11},{e.m12},{e.m13},{e.m20},{e.m21},{e.m22},{e.m23},{e.m30},{e.m31},{e.m32},{e.m33}";
+                    byte[] data = Encoding.ASCII.GetBytes(dataToSend);
+                    exStreamToHolo.Write(data, 0, data.Length);
+                    UnityEngine.Debug.Log($"ExHolo Sent data: {dataToSend}");
+                    exStreamToHolo.Flush();
+                    //Thread.Sleep(Mathf.Clamp(5 * 5 + 250, 200, 300));
+                    Thread.Sleep(10);
+                }
+
+            }
+            catch (Exception e)
+            {
+                UnityEngine.Debug.Log($"{e}");
+            }
+            Thread.Sleep(100);
         }
+
     }
 
     void StartSendThread()
