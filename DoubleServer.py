@@ -228,6 +228,8 @@ def find_samples(ex_index, holo_index, enough_thresh, dt=0):
         t_before = selected_ex_df.loc[i_before,"timestamp"]
         if i_after < selected_ex_df.shape[0] - 2:
             t_after = selected_ex_df.loc[i_after,"timestamp"]
+            if t_after - t_before > Config.maximum_timegap:
+                continue
             m_after = selected_ex_df.loc[i_after,"mat"]
             m_before = selected_ex_df.loc[i_before,"mat"]
             w_before = (t_holo - t_before)/(t_after - t_before)
