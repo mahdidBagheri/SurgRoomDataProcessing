@@ -156,8 +156,8 @@ def visualize_rot_path(ref, target, rot):
     plt.show(block=False)
 
 
-def calibrate_rotation(samples,apply_ransac, vis):
-    deltas = []
+def calibrate_rotation(samples,apply_ransac,init_deltas, vis):
+    deltas = [] + init_deltas
 
     for i in range(0, len(samples)):
         j = len(samples) - i - 1
@@ -265,8 +265,8 @@ def convert(s: str, noise=False):
         arr = add_noise(arr)
     return arr
 
-def calibrate_translation(rotated_samples, rot, apply_ransac=True):
-    rotated_samples = rotate_samples(rotated_samples, rot)
+def calibrate_translation(samples, rot, apply_ransac=True):
+    rotated_samples = rotate_samples(samples, rot)
     deltas = []
 
     for i in range(len(rotated_samples)):

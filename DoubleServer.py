@@ -11,6 +11,7 @@ import pandas as pd
 from scipy.spatial.transform import Slerp
 import Calibrator
 import Utils
+from itertools import compress
 
 samples = []
 ex_data = []
@@ -19,6 +20,7 @@ ex_socket = None
 holo_socket = None
 is_enough_data = False
 
+delta_history = []
 def decode_response(response):
     str_list = response
     flt_list = [float(l) for l in str_list]
@@ -245,7 +247,7 @@ def find_samples_delaytuned(ex_index, holo_index, enough_thresh):
         if(len(samples) == 0):
             continue
         delta = 0
-        for i in range(0,len(samples),int(len(samples)/50)):
+        for i in range(0,len(samples),int(len(samples)/Config.delay_sampling_ration)):
             j = len(samples) - i - 1
             qiref = Utils.matrix_to_quaternion(samples[i]["ref"][:3,:3])
             qjref = Utils.matrix_to_quaternion(samples[j]["ref"][:3,:3])
@@ -280,6 +282,34 @@ def SendResponse(message):
     finally:
         client_socket.close()
 
+def find_n_min_indexes(lst, n):
+    # If n exceeds the length of the list, return the original list of indices
+    if n >= len(lst):
+        return list(range(len(lst)))
+
+    # Create a list of tuples (index, value)
+    indexed_lst = list(enumerate(lst))
+
+    # Sort the list based on the values (second element of each tuple)
+    indexed_lst.sort(key=lambda x: x[1])
+
+    # Extract the first n minimum values' indices
+    min_indexes = [indexed_lst[i][0] for i in range(n)]
+
+    return min_indexes
+def find_best_history(rot, deltas, n):
+    errors = []
+    ref_points = np.array([delta.ref for delta in deltas])
+    target_points = np.array([delta.target for delta in deltas])
+    for k in range(ref_points.shape[0]):
+        e = np.linalg.norm(rot @ ref_points[k].reshape(3,1) - target_points[k].reshape(3,1))
+        errors.append(e)
+    min_indexes = find_n_min_indexes(errors, n)
+    best_deltas = [deltas[i] for i in min_indexes]
+    return best_deltas
+
+
+
 if __name__ == "__main__":
     enough_thresh = Config.Enough_samples
     connect_to_servers()
@@ -294,9 +324,11 @@ if __name__ == "__main__":
                     print("calibrating ...")
                     # samples = find_samples_(ex_index, holo_index, enough_thresh=enough_thresh, dt=0)
                     samples = find_samples_delaytuned(ex_index, holo_index, enough_thresh=enough_thresh)
-                    rot, rot_err, inliers, deltas = Calibrator.calibrate_rotation(samples, apply_ransac=True, vis=False)
+                    rot, rot_err, inliers, deltas = Calibrator.calibrate_rotation(samples, apply_ransac=True, vis=False, init_deltas=delta_history)
                     trans, trans_err, tras_std = Calibrator.calibrate_translation(samples, rot)
                     print(f"last rot:{last_rot_error}, rot_err:{rot_err}, last trans:{last_trans_error}, trans_err:{trans_err}")
+                    inlier_deltas = [b for a, b in zip(inliers,deltas) if a]
+                    delta_history = find_best_history(rot,delta_history + inlier_deltas, n=Config.history_length)
 
                     # if (last_rot_error > rot_err and last_trans_error > trans_err):
                     if (True):
