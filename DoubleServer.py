@@ -1,4 +1,5 @@
 import socket
+import traceback
 
 import matplotlib.pyplot as plt
 
@@ -72,7 +73,7 @@ def start_holoserver(ip, port, name):
     while True:
         try:
 
-            recieved_response = conn.recv(2048).decode()
+            recieved_response = conn.recv(4096).decode()
             recieved_response = remained_response + recieved_response
             if recieved_response == '':
                 raise ConnectionResetError
@@ -103,10 +104,7 @@ def start_exserver(ip, port, name):
     response = ""
     while True:
         try:
-            response = conn.recv(4096).decode()
-            if response == '':
-                raise ConnectionResetError
-            recieved_response = conn.recv(2048).decode()
+            recieved_response = conn.recv(4096).decode()
             recieved_response = remained_response + recieved_response
             if recieved_response == '':
                 raise ConnectionResetError
@@ -126,7 +124,7 @@ def start_exserver(ip, port, name):
             server_socket.close()
             conn, server_socket = connect(ip=ip, port=port, name=name)
         except Exception as e:
-            print(f"{name} Error: respose {response}, {e}")
+            print(f"{name} Error: respose {recieved_response}, {e}")
             time.sleep(0.5)
 def start_rec_server(ip='127.0.0.1', port=65430):
     rec_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -344,7 +342,7 @@ if __name__ == "__main__":
                     holo_data = holo_data[len(holo_data) - Config.retain_data:]
                     is_enough_data = False
         except Exception as e:
-            print(f"{e}")
+            print(f"{traceback.format_exc()}")
             ex_data = ex_data[len(ex_data) - Config.retain_data:]
             holo_data = holo_data[len(holo_data) - Config.retain_data:]
         time.sleep(1.0)

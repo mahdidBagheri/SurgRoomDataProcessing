@@ -9,7 +9,7 @@ using System.IO;
 using static UnityEditor.PlayerSettings;
 using System.Net;
 using System.Diagnostics;
-using UnityEngine.InputSystem;
+//using UnityEngine.InputSystem;
 using System.Collections;
 using Unity.PlasticSCM.Editor.UI;
 
@@ -143,15 +143,16 @@ public class Calibrator : MonoBehaviour
     void Update()
     {
         utcNow = DateTime.UtcNow;
-        currentTime = $"{(long)(utcNow - new DateTime(1970, 1, 1)).TotalMilliseconds}";
+        //currentTime = $"{(long)(utcNow - new DateTime(1970, 1, 1)).TotalMilliseconds}";
+        currentTime = $"{(Stopwatch.GetTimestamp())}";
         //TrckerFromExternalTrackerVeiw = this.GetRelativeMatrix(Tracker.transform, ExternalTracker.transform);
 
         // Debug.Log(currentTime);
         //Matrix4x4 P_ = this.GetRelativeMatrix(Tracker.transform, Hololens.transform);
         //Matrix4x4 F_ = this.GetRelativeMatrix(HoloTracker.transform, ExternalTracker.transform);
 
-        //Matrix4x4 hololensFromHololoTrackerVeiw = this.GetRelativeMatrix(Hololens.transform, HoloTracker.transform);
-        Matrix4x4 hololensFromHololoTrackerVeiw = Hololens.transform.localToWorldMatrix;
+        Matrix4x4 hololensFromHololoTrackerVeiw = this.GetRelativeMatrix(Hololens.transform, HoloTracker.transform);
+        //Matrix4x4 hololensFromHololoTrackerVeiw = Hololens.transform.localToWorldMatrix;
         Holo_position = new Vector3(hololensFromHololoTrackerVeiw[0, 3], hololensFromHololoTrackerVeiw[1, 3], hololensFromHololoTrackerVeiw[2, 3]);
         Holo_rotation = hololensFromHololoTrackerVeiw.rotation;
         UnityEngine.Debug.Log(isTransformationRecieved);
@@ -167,7 +168,7 @@ public class Calibrator : MonoBehaviour
             HoloCube.transform.position = new Vector3(HoloCubeNew.m03, HoloCubeNew.m13, HoloCubeNew.m23);
             int a = 0;
 
-            var calcEndoscope = (ApplyRotationOffset(F,RotationOffset) * EndoscopeFromExternalTrackerVeiw);
+            var calcEndoscope = HoloTracker.transform.localToWorldMatrix * (ApplyRotationOffset(F,RotationOffset) *  EndoscopeFromExternalTrackerVeiw);
             HoloEndoscope.transform.rotation = calcEndoscope.rotation;
             HoloEndoscope.transform.position = new Vector3(calcEndoscope[0,3], calcEndoscope[1, 3], calcEndoscope[2, 3]);
 
@@ -175,27 +176,28 @@ public class Calibrator : MonoBehaviour
 
         }
         float ROTATION_RESOLUTION = 0.05f;
-        if (Keyboard.current.numpad1Key.isPressed) RotationOffset.x -= ROTATION_RESOLUTION;
-        else if (Keyboard.current.numpad2Key.isPressed) RotationOffset.y -= ROTATION_RESOLUTION;
-        else if (Keyboard.current.numpad3Key.isPressed) RotationOffset.z -= ROTATION_RESOLUTION;
-        else if (Keyboard.current.numpad4Key.isPressed) RotationOffset.x = 0;
-        else if (Keyboard.current.numpad5Key.isPressed) RotationOffset.y = 0;
-        else if (Keyboard.current.numpad6Key.isPressed) RotationOffset.z = 0;
-        else if (Keyboard.current.numpad7Key.isPressed) RotationOffset.x += ROTATION_RESOLUTION;
-        else if (Keyboard.current.numpad8Key.isPressed) RotationOffset.y += ROTATION_RESOLUTION;
-        else if (Keyboard.current.numpad9Key.isPressed) RotationOffset.z += ROTATION_RESOLUTION;
-        else if (Keyboard.current.numpad0Key.isPressed) shouldUpdate = !shouldUpdate;
+        //if (Keyboard.current.numpad1Key.isPressed) RotationOffset.x -= ROTATION_RESOLUTION;
+        //else if (Keyboard.current.numpad2Key.isPressed) RotationOffset.y -= ROTATION_RESOLUTION;
+        //else if (Keyboard.current.numpad3Key.isPressed) RotationOffset.z -= ROTATION_RESOLUTION;
+        //else if (Keyboard.current.numpad4Key.isPressed) RotationOffset.x = 0;
+        //else if (Keyboard.current.numpad5Key.isPressed) RotationOffset.y = 0;
+        //else if (Keyboard.current.numpad6Key.isPressed) RotationOffset.z = 0;
+        //else if (Keyboard.current.numpad7Key.isPressed) RotationOffset.x += ROTATION_RESOLUTION;
+        //else if (Keyboard.current.numpad8Key.isPressed) RotationOffset.y += ROTATION_RESOLUTION;
+        //else if (Keyboard.current.numpad9Key.isPressed) RotationOffset.z += ROTATION_RESOLUTION;
+        //else if (Keyboard.current.numpad0Key.isPressed) shouldUpdate = !shouldUpdate;
 
 
     }
 
     Matrix4x4 GetRelativeMatrix(Transform target, Transform reference)
     {
-        Vector3 relativePosition = reference.InverseTransformPoint(target.position);
-        Quaternion relativeRotation = Quaternion.Inverse(reference.rotation) * target.rotation;
-        Vector3 relativeScale = new Vector3(target.localScale.x / reference.localScale.x, target.localScale.y / reference.localScale.y, target.localScale.z / reference.localScale.z);
+        //Vector3 relativePosition = reference.InverseTransformPoint(target.position);
+        //Quaternion relativeRotation = Quaternion.Inverse(reference.rotation) * target.rotation;
+        //Vector3 relativeScale = new Vector3(target.localScale.x / reference.localScale.x, target.localScale.y / reference.localScale.y, target.localScale.z / reference.localScale.z);
 
-        return Matrix4x4.TRS(relativePosition, relativeRotation, relativeScale);
+        //return Matrix4x4.TRS(relativePosition, relativeRotation, relativeScale);
+        return reference.localToWorldMatrix.inverse * target.localToWorldMatrix;
     }
 
     public void OnStart()
@@ -225,12 +227,12 @@ public class Calibrator : MonoBehaviour
                     byte[] data = Encoding.ASCII.GetBytes(dataToSend);
                     holoStream.Write(data, 0, data.Length);
                     //holoStream.Flush();
-                    using (StreamWriter writer = new StreamWriter(filePath, true)) // 'true' enables append mode
-                    {
-                        writer.WriteLine(string.Join(",", dataToSend));
-                    }
+                    //using (StreamWriter writer = new StreamWriter(filePath, true)) // 'true' enables append mode
+                    //{
+                    //    writer.WriteLine(string.Join(",", dataToSend));
+                    //}
                     //Console.WriteLine($"Data appended to {filePath}");
-                    Thread.Sleep(10);
+                    Thread.Sleep(20);
                 }
             }
             catch (Exception e) {
@@ -270,7 +272,7 @@ public class Calibrator : MonoBehaviour
                     {
                         TrckerFromExternalTrackerVeiw = ParseMatrix(splittedData[0]);
                         EndoscopeFromExternalTrackerVeiw = ParseMatrix(splittedData[1]);
-                        UnityEngine.Debug.Log($"{EndoscopeFromExternalTrackerVeiw}");
+                        //UnityEngine.Debug.Log($"{EndoscopeFromExternalTrackerVeiw}");
                     }
                     else
                     {

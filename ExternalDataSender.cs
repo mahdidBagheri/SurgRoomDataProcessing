@@ -62,7 +62,8 @@ public class ExternalDataSender : MonoBehaviour
     void Update()
     {
         utcNow = DateTime.UtcNow;
-        currentTime = $"{(long)(utcNow - new DateTime(1970, 1, 1)).TotalMilliseconds}";
+        //currentTime = $"{(long)(utcNow - new DateTime(1970, 1, 1)).TotalMilliseconds}";
+        currentTime = $"{(Stopwatch.GetTimestamp())}";
         //UnityEngine.Debug.Log($"{currentTime}");
         
         TrckerFromExternalTrackerVeiw = this.GetRelativeMatrix(Tracker.transform, ExternalTracker.transform);
@@ -89,10 +90,12 @@ public class ExternalDataSender : MonoBehaviour
 
     Matrix4x4 GetRelativeMatrix(Transform target, Transform reference)
     {
-        Vector3 relativePosition = reference.InverseTransformPoint(target.position);
-        Quaternion relativeRotation = Quaternion.Inverse(reference.rotation) * target.rotation;
-        Vector3 relativeScale = new Vector3(target.localScale.x / reference.localScale.x, target.localScale.y / reference.localScale.y, target.localScale.z / reference.localScale.z);
-        return Matrix4x4.TRS(relativePosition, relativeRotation, relativeScale);
+        //Vector3 relativePosition = reference.InverseTransformPoint(target.position);
+        //Quaternion relativeRotation = Quaternion.Inverse(reference.rotation) * target.rotation;
+        //Vector3 relativeScale = new Vector3(target.localScale.x / reference.localScale.x, target.localScale.y / reference.localScale.y, target.localScale.z / reference.localScale.z);
+        //return Matrix4x4.TRS(relativePosition, relativeRotation, relativeScale);
+        return reference.localToWorldMatrix.inverse * target.localToWorldMatrix;
+
     }
 
     void SendExData()
@@ -118,17 +121,17 @@ public class ExternalDataSender : MonoBehaviour
                     exStream.Write(data, 0, data.Length);
 
 
-                    using (StreamWriter writer = new StreamWriter(filePath, true)) // 'true' enables append mode
-                    {
+                    //using (StreamWriter writer = new StreamWriter(filePath, true)) // 'true' enables append mode
+                    //{
 
-                        // Write the data row
-                        writer.WriteLine(string.Join(",", dataToSend));
-                    }
+                    //    // Write the data row
+                    //    writer.WriteLine(string.Join(",", dataToSend));
+                    //}
 
                     Console.WriteLine($"Data appended to {filePath}");
-                    UnityEngine.Debug.Log($"Ex Sent data: {dataToSend}");
+                    //UnityEngine.Debug.Log($"Ex Sent data: {dataToSend}");
                     //Thread.Sleep(Mathf.Clamp(5 * 5 + 250, 200, 300));
-                    Thread.Sleep(10);
+                    Thread.Sleep(20);
                 }
             }
             catch (Exception e)
