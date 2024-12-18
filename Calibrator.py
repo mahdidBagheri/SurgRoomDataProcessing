@@ -1,5 +1,6 @@
 import copy
 
+from Config import Config
 from Config.CalibrationConfig import rotation_residual,translation_residual
 from RANSAC import ransac_rigid_transform, CostumOutlierRemoval, ransac_mean_transformation
 import numpy as np
@@ -21,6 +22,7 @@ def hsv_to_rgba(h, s, v):
 class DSample:
     def __init__(self):
         self.ref = None
+        self.ref_angle = None
         self.index_1 = None
         self.t_1 = None
         self.target = None
@@ -40,13 +42,14 @@ def delta_rotation_samples(s1, s2, i, j):
     targetA = angle_from_rotation_matrix(dtarget)
     ds.valid = refA > 0.4 and targetA > 0.4 and np.linalg.norm(ds.ref) > 0.01 and np.linalg.norm(ds.target) > 0.01
     # ds.valid = True
-
+    ds.ref_angle = refA
     # ds.ref = ds.ref / np.linalg.norm(ds.ref) * refA
     ds.ref = ds.ref / np.linalg.norm(ds.ref)
     ds.index_1 = i
     # ds.target = ds.target / np.linalg.norm(ds.target) * targetA
     ds.target = ds.target / np.linalg.norm(ds.target)
     ds.index_2 = j
+
     return ds
 
 def visalize_rots(ref, target, rot, n=20):
@@ -164,6 +167,7 @@ def calibrate_rotation(samples,apply_ransac,init_deltas, vis):
         delta = delta_rotation_samples(samples[i], samples[j], i, j)
         if delta.valid:
             deltas.append(delta)
+
 
     print(f"Got {len(samples)} samples with {len(deltas)} delta samples")
 

@@ -307,7 +307,6 @@ def find_best_history(rot, deltas, n):
     return best_deltas
 
 
-
 if __name__ == "__main__":
     enough_thresh = Config.Enough_samples
     connect_to_servers()
@@ -328,8 +327,14 @@ if __name__ == "__main__":
                     inlier_deltas = [b for a, b in zip(inliers,deltas) if a]
                     delta_history = find_best_history(rot,delta_history + inlier_deltas, n=Config.history_length)
 
+                    print("number of deltas: ", len(deltas))
+                    if len(deltas) < Config.min_delta_needed:
+                        raise Exception(f"couldn't find enough delta ({len(deltas)}).")
+
                     # if (last_rot_error > rot_err and last_trans_error > trans_err):
-                    if (True):
+                    if (rot_err < Config.min_rot_err):
+                        if Config.min_rot_err > Config.rot_error_lower_bound:
+                            Config.min_rot_err *= Config.decay_rate
                         last_rot_error = rot_err
                         last_trans_error = trans_err
                         F = Calibrator.make_homogeneous(rot.T)
@@ -338,6 +343,8 @@ if __name__ == "__main__":
                         FT_trnsforms = encode_transform(F) + '|' + encode_transform(T)
                         print("result sent")
                         SendResponse(FT_trnsforms)
+                    else:
+                        raise Exception(f"error {rot_err} is above accepted error: {Config.min_rot_err}")
                     ex_data = ex_data[len(ex_data) - Config.retain_data:]
                     holo_data = holo_data[len(holo_data) - Config.retain_data:]
                     is_enough_data = False
